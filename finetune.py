@@ -81,7 +81,7 @@ def train(args):
         classifier.train()
         for _, (x, y) in tqdm(enumerate(train_dataloder), desc="Training", leave=False, total=len(train_dataloder)):
             x, y = x.to(DEVICE), y.to(DEVICE)
-            latent = model.forward_feature(x.float(), mask_t_ratio=args.mask_t_ratio, mask_f_ratio=args.mask_f_ratio)
+            latent = model.forward_feature(x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
             output = classifier(latent)
 
             optimizer.zero_grad()
@@ -98,7 +98,7 @@ def train(args):
         classifier.eval()
         for _, (x, y) in tqdm(enumerate(val_dataloder), desc="Validation", leave=False, total=len(val_dataloder)):
             x, y = x.to(DEVICE), y.to(DEVICE)
-            latent = model.forward_feature(x.float(), mask_t_ratio=args.mask_t_ratio, mask_f_ratio=args.mask_f_ratio)
+            latent = model.forward_feature(x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
             output = classifier(latent)
 
             loss = criterion(output, y)
@@ -125,7 +125,7 @@ def inference(args):
     pred_acts, true_acts = [], []
     for _, (x, y) in tqdm(enumerate(test_dataloder), desc="Testing", total=len(test_dataloder)):
         x, y = x.to(DEVICE), y.to(DEVICE)
-        latent = model.forward_feature(x.float(), mask_t_ratio=args.mask_t_ratio, mask_f_ratio=args.mask_f_ratio)
+        latent = model.forward_feature(x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
         output = classifier(latent)
 
         true_act = y.argmax(dim=1).cpu().tolist()
