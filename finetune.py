@@ -55,6 +55,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # Model & Dataset
     parser.add_argument("--weight", type=str, required=True, help="Path to the pre-trained model")
+    parser.add_argument("--mask_t_ratio", type=float, default=0.2)
+    parser.add_argument("--mask_f_ratio", type=float, default=0.2)
 
     # Hyperparameters
     parser.add_argument("--epochs", type=int, default=32)
@@ -79,7 +81,7 @@ def train(args):
         classifier.train()
         for _, (x, y) in tqdm(enumerate(train_dataloder), desc="Training", leave=False, total=len(train_dataloder)):
             x, y = x.to(DEVICE), y.to(DEVICE)
-            latent = model.forward_feature(x.float(), mask_ratio=0.0)
+            latent = model.forward_feature(x.float(), mask_t_ratio=args.mask_t_ratio, mask_f_ratio=args.mask_f_ratio)
             output = classifier(latent)
 
             optimizer.zero_grad()
@@ -96,7 +98,7 @@ def train(args):
         classifier.eval()
         for _, (x, y) in tqdm(enumerate(val_dataloder), desc="Validation", leave=False, total=len(val_dataloder)):
             x, y = x.to(DEVICE), y.to(DEVICE)
-            latent = model.forward_feature(x.float(), mask_ratio=0.0)
+            latent = model.forward_feature(x.float(), mask_t_ratio=args.mask_t_ratio, mask_f_ratio=args.mask_f_ratio)
             output = classifier(latent)
 
             loss = criterion(output, y)
@@ -123,7 +125,7 @@ def inference(args):
     pred_acts, true_acts = [], []
     for _, (x, y) in tqdm(enumerate(test_dataloder), desc="Testing", total=len(test_dataloder)):
         x, y = x.to(DEVICE), y.to(DEVICE)
-        latent = model.forward_feature(x.float())
+        latent = model.forward_feature(x.float(), mask_t_ratio=args.mask_t_ratio, mask_f_ratio=args.mask_f_ratio)
         output = classifier(latent)
 
         true_act = y.argmax(dim=1).cpu().tolist()
@@ -138,14 +140,15 @@ def inference(args):
 
 if __name__ == "__main__":
     args = parse_args()
-    model_record = f"finetune/AudioMAE/mr{str(args.mask_ratio).replace('.', '')}"
+    model_record = f"finetune/AudioMAE/mr_t{str(args.mask_t_ratio).replace('.', '')}f{str(args.mask_f_ratio).replace('.', '')}"
     result_record = f"lr{str(args.lr).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
 
     # pretrain model
     model = MAE_Swin(
         in_shape=(1, 320, 128), patch_size=(16, 16),
         encoder_embed_dim=768, encoder_depth=12, encoder_num_heads=12,
-        decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16
+        decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
+        use_mask_2d=True
     )
     classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS))
     model.to(DEVICE)
