@@ -150,7 +150,7 @@ if __name__ == "__main__":
         decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
         use_mask_2d=True
     )
-    classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS))
+    classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS)+1)
     model.to(DEVICE)
     classifier.to(DEVICE)
 

@@ -177,8 +177,9 @@ if __name__ == "__main__":
     # dataset = TWBird(src_file="./data/pretrain/train.txt")
 
     dataloader = DataLoader(dataset, batch_size=4, num_workers=4, pin_memory=True)
-    for i, (feat, _) in enumerate(dataloader):
+    for i, (feat, l) in enumerate(dataloader):
         print(feat.shape)
+        print(l.shape)
         print(len(dataloader))
         
         if i >= 3:
