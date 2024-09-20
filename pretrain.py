@@ -57,6 +57,8 @@ def train(args):
         train_loss = 0
         model.train()
         for i, (x, _) in tqdm(enumerate(train_dataloder), desc="Training", leave=False, total=len(train_dataloder)):
+            if i >= len(train_dataloder):
+                break
             x = x.to(DEVICE)
             optimizer.zero_grad()
             _, _, _, loss = model(x.float(), mask_ratio=args.mask_ratio)
@@ -64,8 +66,7 @@ def train(args):
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
-            if i >= len(train_dataloder):
-                break
+            
         scheduler.step()
         write_loss_history(
             epoch=epoch, loss=train_loss/len(train_dataloder),
@@ -75,12 +76,13 @@ def train(args):
         val_loss = 0
         model.eval()
         for i, (x, _) in tqdm(enumerate(val_dataloder), desc="Validation", leave=False, total=len(val_dataloder)):
+            if i >= len(val_dataloder):
+                break
             x = x.to(DEVICE)
             _, _, _, loss = model(x.float(), mask_ratio=args.mask_ratio)
             loss = loss.mean()
             val_loss += loss.item()
-            if i >= len(val_dataloder):
-                break
+            
         write_loss_history(
             epoch=epoch, loss=val_loss/len(val_dataloder),
             filename=f"./results/{model_record}/{result_record}/val_loss.txt"

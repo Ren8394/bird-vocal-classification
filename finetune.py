@@ -73,13 +73,15 @@ def parse_args():
 def train(args):
     model.load_state_dict(torch.load(args.weight, map_location=DEVICE), strict=False)
 
+    best_loss = np.inf
     Path(f"./results/{model_record}/{result_record}/train_loss.txt").unlink(missing_ok=True)
     Path(f"./results/{model_record}/{result_record}/val_loss.txt").unlink(missing_ok=True)
-    best_loss = np.inf
     for epoch in trange(args.epochs, desc="Epoch"):
         train_loss = 0
         classifier.train()
-        for _, (x, y) in tqdm(enumerate(train_dataloder), desc="Training", leave=False, total=len(train_dataloder)):
+        for i, (x, y) in tqdm(enumerate(train_dataloder), desc="Training", leave=False, total=len(train_dataloder)):
+            if i >= len(train_dataloder):
+                break
             x, y = x.to(DEVICE), y.to(DEVICE)
             latent = model.forward_feature(x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
             output = classifier(latent)
@@ -96,7 +98,9 @@ def train(args):
 
         val_loss = 0
         classifier.eval()
-        for _, (x, y) in tqdm(enumerate(val_dataloder), desc="Validation", leave=False, total=len(val_dataloder)):
+        for i, (x, y) in tqdm(enumerate(val_dataloder), desc="Validation", leave=False, total=len(val_dataloder)):
+            if i >= len(val_dataloder):
+                break
             x, y = x.to(DEVICE), y.to(DEVICE)
             latent = model.forward_feature(x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
             output = classifier(latent)
