@@ -140,7 +140,7 @@ def inference(args):
 
 if __name__ == "__main__":
     args = parse_args()
-    model_record = f"finetune/AudioMAE/mr_t{str(args.mask_t_ratio).replace('.', '')}f{str(args.mask_f_ratio).replace('.', '')}"
+    model_record = f"linearProbing/AudioMAE/mr_t{str(args.mask_t_ratio).replace('.', '')}f{str(args.mask_f_ratio).replace('.', '')}"
     result_record = f"lr{str(args.lr).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
 
     # pretrain model
@@ -155,13 +155,13 @@ if __name__ == "__main__":
     classifier.to(DEVICE)
 
     # dataloader
-    train_dataloder = DataLoader(TWBird(src_file="./data/finetune/train.txt", labeled=True), batch_size=args.batch_size, shuffle=True)
-    val_dataloder = DataLoader(TWBird(src_file="./data/finetune/val.txt", labeled=True), batch_size=args.batch_size, shuffle=False)
-    test_dataloder = DataLoader(TWBird(src_file="./data/finetune/test.txt", labeled=True), batch_size=1, shuffle=False)
+    train_dataloder = DataLoader(TWBird(src_file="./data/finetune/train.txt", labeled=True), batch_size=args.batch_size, num_workers=4, pin_memory=True)
+    val_dataloder = DataLoader(TWBird(src_file="./data/finetune/val.txt", labeled=True), batch_size=args.batch_size, num_workers=4, pin_memory=True)
+    test_dataloder = DataLoader(TWBird(src_file="./data/finetune/test.txt", labeled=True), batch_size=1)
 
     # criterion & optimizer
-    combined_parameters = chain(model.parameters(), classifier.parameters())
-    optimizer = torch.optim.AdamW(combined_parameters, lr=args.lr, weight_decay=args.weight_decay)
+    # combined_parameters = chain(model.parameters(), classifier.parameters())
+    optimizer = torch.optim.AdamW(classifier.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.BCEWithLogitsLoss()
     
     if args.train:
