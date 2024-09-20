@@ -18,6 +18,20 @@ from utils.checkpoint import save_checkpoint, load_checkpoint, save_and_cleanup_
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+TWBIRD_LABELS = [
+    "YB-S", "HA-S", "CR-S", "ML-S", "AA-S", 
+    "AC-S", "NV-S", "LS-S", "PM-S", "PAL-S", 
+    "PN-S", "FH-S", "HAC-S", "BG-S", "SB-S", 
+    "ME-S", "GB-S", "PS-S", "PA-S", "SE-S", 
+    "AM-S", "HS-S", "MH-S", "DI-S", "TM-S", 
+    "TS-S", "PNI-S", "IP-S", "BS-S", "PC-S", 
+    "RG-S", "LS-C", "HA-C", "AM-C", "TR-C", 
+    "CM-C", "OS-S", "FH-C", "HL-C", "NJ-S", 
+    "YB-C", "ACO-C", "PM-C", "DL-C", "SE-C", 
+    "TI-S", "DI-C", "PMU-S", "EZ-S", "CP-S", 
+    "TM-C", "HL-S", "SC-S"
+]
+
 class MLP(nn.Module):
     def __init__(self, in_features, out_features):
         super(MLP, self).__init__()
@@ -122,11 +136,7 @@ def inference(args):
         true_acts.extend(true_act)
         pred_acts.extend(pred_act)
 
-    if args.dataset in ["PAMAP2", "PAMAP2W", "PAMAP2C"]:
-        labels = PAMAP2_LABEL
-    elif args.dataset in ["USCHAD"]:
-        labels = USCHAD_LABEL
-    report = classification_report(true_acts, pred_acts, target_names=labels, zero_division=0)
+    report = classification_report(true_acts, pred_acts, target_names=TWBIRD_LABELS, zero_division=0)
     print(report)
     with open(f"results/{model_record}/{result_record}/classification_report.txt", "w") as f:
         f.write(report)        
@@ -141,20 +151,15 @@ if __name__ == "__main__":
         in_shape=(1, 320, 128), patch_size=(16, 16),
         encoder_embed_dim=768, encoder_depth=12, encoder_num_heads=12,
         decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16
-    ).to(DEVICE)
+    )
     classifier = MLP(in_features=768, out_features=)
-
-
-    # select model
-    model, classifier = select_model(args)
     model.to(DEVICE)
     classifier.to(DEVICE)
 
     # dataloader
-    datasets = select_dataset(args)
-    train_dataloder = DataLoader(datasets["train"], batch_size=args.batch_size, shuffle=True)
-    val_dataloder = DataLoader(datasets["val"], batch_size=args.batch_size, shuffle=False)
-    test_dataloder = DataLoader(datasets["test"], batch_size=1, shuffle=False)
+    train_dataloder = DataLoader(TWBird(src_file="./data/finetune/train.txt", labeled=True), batch_size=args.batch_size, shuffle=True)
+    val_dataloder = DataLoader(TWBird(src_file="./data/finetune/val.txt", labeled=True), batch_size=args.batch_size, shuffle=False)
+    test_dataloder = DataLoader(TWBird(src_file="./data/finetune/test.txt", labeled=True), batch_size=1, shuffle=False)
 
     # criterion & optimizer
     combined_parameters = chain(model.parameters(), classifier.parameters())
@@ -175,44 +180,3 @@ if __name__ == "__main__":
         print(f"Finish training. {model_record}")
     if args.inference:
         inference(args)
-
-
-
-    
-
-    # AudioMAE Base Version
-    model = MAE_Swin(
-        in_shape=(1, 320, 128), patch_size=(16, 16),
-        encoder_embed_dim=768, encoder_depth=12, encoder_num_heads=12,
-        decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16
-    ).to(DEVICE)
-
-    # multi-gpu
-    if torch.cuda.device_count() > 1:
-        model = torch.nn.DataParallel(model)
-
-    # dataloader
-    train_dataloder = DataLoader(TWBird(src_file="./data/pretrain/train.txt", labeled=False), batch_size=args.batch_size, num_workers=4, pin_memory=True)
-    val_dataloder = DataLoader(TWBird(src_file="./data/pretrain/val.txt", labeled=False), batch_size=args.batch_size, num_workers=4, pin_memory=True)
-    test_dataloder = DataLoader(TWBird(src_file="./data/pretrain/test.txt", labeled=False), batch_size=args.batch_size, num_workers=4, pin_memory=True)
-
-    # optimizer & scheduler
-    optimizer = torch.optim.AdamW(
-        model.parameters(), 
-        lr=args.lr, 
-        weight_decay=args.weight_decay,
-        betas=(0.9, 0.95),
-    )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
-    
-    if args.train:
-        Path(f"./results/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
-        Path(f"/media/birdsong/disk02/bird-vocal-classification/weights/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
-        Path(f"/media/birdsong/disk02/bird-vocal-classification/ckpt/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
-        with open(f"./results/{model_record}/{result_record}/gradient.txt", "w") as f:
-            for name, param in model.named_parameters():
-                f.write(f"Pretrain Parameter: {name}, Requires Grad: {param.requires_grad}\n")
-        train(args)
-        print(f"Finish training. {model_record}")
-    if args.inference:
-        inference()
