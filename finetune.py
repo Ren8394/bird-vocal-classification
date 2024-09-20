@@ -55,11 +55,6 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # Model & Dataset
     parser.add_argument("--weight", type=str, required=True, help="Path to the pre-trained model")
-    parser.add_argument(
-        "--classifier", type=str, required=True,
-        choices=["MLP"]
-    )
-    parser.add_argument("--mask_ratio", type=float, default=0.8)
 
     # Hyperparameters
     parser.add_argument("--epochs", type=int, default=32)
@@ -152,7 +147,7 @@ if __name__ == "__main__":
         encoder_embed_dim=768, encoder_depth=12, encoder_num_heads=12,
         decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16
     )
-    classifier = MLP(in_features=768, out_features=)
+    classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS))
     model.to(DEVICE)
     classifier.to(DEVICE)
 
@@ -164,7 +159,7 @@ if __name__ == "__main__":
     # criterion & optimizer
     combined_parameters = chain(model.parameters(), classifier.parameters())
     optimizer = torch.optim.AdamW(combined_parameters, lr=args.lr, weight_decay=args.weight_decay)
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.BCEWithLogitsLoss()
     
     if args.train:
         Path(f"./results/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
