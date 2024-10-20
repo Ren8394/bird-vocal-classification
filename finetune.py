@@ -154,7 +154,8 @@ if __name__ == "__main__":
         decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
         use_mask_2d=True
     )
-    classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS)+1)
+    classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS))  # no NOTA label
+    # classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS)+1)  # with NOTA label
     model.to(DEVICE)
     classifier.to(DEVICE)
 
@@ -164,7 +165,9 @@ if __name__ == "__main__":
     test_dataloder = DataLoader(TWBird(src_file="./data/finetune/test.txt", labeled=True), batch_size=1)
 
     # criterion & optimizer
-    # combined_parameters = chain(model.parameters(), classifier.parameters())
+    # freeze pretrain model
+    for param in model.parameters():
+        param.requires_grad = False
     optimizer = torch.optim.AdamW(classifier.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.BCEWithLogitsLoss()
     
