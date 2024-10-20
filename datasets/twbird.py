@@ -147,27 +147,46 @@ class TWBird(IterableDataset):
         return overlap_percentage
     
     def _get_soft_label(self, filename, start_time, end_time):
+        # Select files accepted NOTA label (skip)
+        with_nota = False
+
+        # read labels from the txt file
         labels_df = pd.read_csv(
             f"{LABEL_DIR}/{filename}.txt", sep="\t", header=None,
             names=["start_time", "end_time", "label"], dtype={"start_time": float, "end_time": float, "label": str}
         )
-        labels_df["label"] = labels_df["label"].apply(lambda x: re.sub(r"\d", "", x))
+        labels_df["label"] = labels_df["label"].apply(lambda x: re.sub(r"\d", "", x))   # remove numbers in the label
+
         # select labels that are overlapped with the current window
         labels_df = labels_df[(labels_df["start_time"] <= end_time) & (labels_df["end_time"] >= start_time)]
-        # if no label is found, return None
+        if with_nota:
+            soft_label = [1/(len(self.target)+1)] * (len(self.target)+1)  # [target, NOTA]  
+        else:
+            soft_label = [1/(len(self.target))] * (len(self.target))  # [target]
+
+        # if no label is found, set the last element NOTA to 1
         if labels_df.empty:
-            return None
+            if with_nota:
+                soft_label[-1] = 1
         # if there are labels, calculate the soft label based on the overlap percentage and basic label
-        soft_label = [1/(len(self.target)+1)] * (len(self.target)+1)
-        for _, row in labels_df.iterrows():
-            label = row["label"]
-            overlap_percentage = self._calculate_overlap(label_time=(row["start_time"], row["end_time"]), window_time=(start_time, end_time))
-            if label in self.target:
-                soft_label[self.target.index(label)] += overlap_percentage
-            elif label in self.sub_target:
-                soft_label[self.sub_target.index(label)] += overlap_percentage * 0.6
-            else:
-                soft_label[-1] += overlap_percentage
+        else:
+            for _, row in labels_df.iterrows():
+                label = row["label"]
+                overlap_percentage = self._calculate_overlap(label_time=(row["start_time"], row["end_time"]), window_time=(start_time, end_time))
+                # label in the target list
+                if label in self.target:
+                    soft_label[self.target.index(label)] += overlap_percentage
+                # label in the sub_target list
+                elif label in self.sub_target:
+                    soft_label[self.sub_target.index(label)] += overlap_percentage * 0.6
+                # NOTA label
+                else:
+                    if with_nota:
+                        soft_label[-1] += overlap_percentage
+
+        # normalize the soft label, make every element in the list to be in the range of [0, 1]
+        soft_label = [ max(0, min(1, l)) for l in soft_label]
+
         return soft_label
 
 if __name__ == "__main__":
