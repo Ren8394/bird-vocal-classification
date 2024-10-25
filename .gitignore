@@ -1,21 +1,24 @@
-# ignore all contents in data folder but keep the folder
+# all contents in data folder but keep the folder
 /data/*
 !/data/*.py
 
-# ignore results
+# results
 results/*
 
-# ignore prelinminary
+# prelinminary
 /weights/preliminary_*.pth
 preliminary_model_*.txt
 preliminary*.py
 
-# ignore weights and checkpoints
+# weights and checkpoints
 *.pth
 *.pth.tar
 
-# ignore ipynb
+# ipynb
 *.ipynb
+
+# shell scripts
+*.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
