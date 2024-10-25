@@ -38,79 +38,68 @@ class TWBird(IterableDataset):
         self.target = target_df["Label"].values.tolist()
         self.sub_target = [t.split("-")[0] + "-A" + t.split("-")[1] for t in self.target]
 
-        self.window_num = np.floor((AUDIO_LENGTH - WINDOW_SIZE) // HOP_LENGTH)
-        self.file_idx = 0
-        self.window_idx = 0
+        self.window_num = int(np.floor((AUDIO_LENGTH - WINDOW_SIZE) / HOP_LENGTH))
+        self.total_samples = len(self.file_paths) * self.window_num
 
     def __len__(self):
-        return int(len(self.file_paths) * self.window_num)
+        return self.total_samples
 
     def __iter__(self):
-        while True:
-            if self.file_idx >= len(self.file_paths):
-                self.file_idx = 0
-            waveform, sr = ta.load(self.file_paths[self.file_idx], normalize=True)  # [2, T(s)*sr=points]
-            waveform = waveform.mean(dim=0, keepdim=True)   # to mono [1, T(s)*sr=points]
+        worker_info = torch.utils.data.get_worker_info()
+        
+        if worker_info is None:  # single-process data loading
+            start_idx = 0
+            end_idx = len(self.file_paths)
+        else:  # in a worker process
+            per_worker = int(np.ceil(len(self.file_paths) / worker_info.num_workers))
+            worker_id = worker_info.id
+            start_idx = worker_id * per_worker
+            end_idx = min(start_idx + per_worker, len(self.file_paths))
 
-            # slice audio into 3s windows with 0.5s hop length
-            start_point = int(self.window_idx * HOP_LENGTH * sr)
-            end_point = int(self.window_idx * HOP_LENGTH * sr + WINDOW_SIZE * sr)
-            sliced_waveform = waveform[:, start_point : end_point]
+        for file_idx in range(start_idx, end_idx):
+            waveform, sr = ta.load(self.file_paths[file_idx], normalize=True)
+            waveform = waveform.mean(dim=0, keepdim=True)
 
-            if self.labeled:
-                # augmentation only when finetuning w/ labeled data
-                sliced_waveform = self._roll_mag_aug(sliced_waveform)
+            for window_idx in range(self.window_num):
+                start_point = int(window_idx * HOP_LENGTH * sr)
+                end_point = int(window_idx * HOP_LENGTH * sr + WINDOW_SIZE * sr)
+                sliced_waveform = waveform[:, start_point : end_point]
+
+                if self.labeled:
+                    sliced_waveform = self._roll_mag_aug(sliced_waveform)
                 
-            # get fbank features
-            fbank_features = fbank(
-                sliced_waveform, 
-                htk_compat=True,
-                sample_frequency=sr,
-                window_type="hanning",
-                num_mel_bins=NUM_MEL_BIN,
-                low_freq=MIN_FREQ,
-                high_freq=MAX_FREQ
-            )
-
-            if self.labeled:
-                # augmentation only when finetuning w/ labeled data
-                fbank_features = self._mask_time_freq_aug(fbank_features)
-            
-            # normalize fbank features
-            fbank_features = (fbank_features - NORM_MEAN) / (NORM_STD * 2)
-
-            if self.labeled:
-                # add noise to fbank features
-                fbank_features = self._add_noise_aug(fbank_features)
-
-            fbank_features = rearrange(fbank_features, "f t -> 1 f t")
-            fbank_features = F.pad(fbank_features, (0, 0, 22, 0))  # [1, 298, 128] -> [1, 320, 128]
-
-            if self.labeled:
-                soft_label = self._get_soft_label(
-                    filename=Path(self.file_paths[self.file_idx]).stem,
-                    start_time=(start_point / sr),
-                    end_time=(end_point / sr)
+                fbank_features = fbank(
+                    sliced_waveform, 
+                    htk_compat=True,
+                    sample_frequency=sr,
+                    window_type="hanning",
+                    num_mel_bins=NUM_MEL_BIN,
+                    low_freq=MIN_FREQ,
+                    high_freq=MAX_FREQ
                 )
-                if soft_label is None:
-                    self.window_idx += 1
-                    # if reach the end of the audio file, load the next file
-                    if self.window_idx >= self.window_num:
-                        self.file_idx += 1
-                        self.window_idx = 0
-                    continue
-                yield fbank_features, torch.Tensor(soft_label)
-            else:
-                yield fbank_features, [-1] * (len(self.target)+1)
 
-            self.window_idx += 1
-            # if reach the end of the audio file, load the next file
-            if self.window_idx >= self.window_num:
-                self.file_idx += 1
-                self.window_idx = 0
+                if self.labeled:
+                    fbank_features = self._mask_time_freq_aug(fbank_features)
+                
+                fbank_features = (fbank_features - NORM_MEAN) / (NORM_STD * 2)
 
-            if self.file_idx >= len(self.file_paths):
-                self.file_idx = 0
+                if self.labeled:
+                    fbank_features = self._add_noise_aug(fbank_features)
+
+                fbank_features = rearrange(fbank_features, "f t -> 1 f t")
+                fbank_features = F.pad(fbank_features, (0, 0, 22, 0))
+
+                if self.labeled:
+                    soft_label = self._get_soft_label(
+                        filename=Path(self.file_paths[file_idx]).stem,
+                        start_time=(start_point / sr),
+                        end_time=(end_point / sr)
+                    )
+                    if soft_label is None:
+                        continue
+                    yield fbank_features, torch.Tensor(soft_label)
+                else:
+                    yield fbank_features, torch.Tensor([-1] * len(self.target))
 
     def _roll_mag_aug(self, waveform) -> torch.Tensor:
         waveform = waveform.numpy()
@@ -148,7 +137,7 @@ class TWBird(IterableDataset):
     
     def _get_soft_label(self, filename, start_time, end_time):
         # Select files accepted NOTA label (skip)
-        with_nota = False
+        with_nota = True
 
         # read labels from the txt file
         labels_df = pd.read_csv(
@@ -185,7 +174,7 @@ class TWBird(IterableDataset):
                         soft_label[-1] += overlap_percentage
 
         # normalize the soft label, make every element in the list to be in the range of [0, 1]
-        soft_label = [ max(0, min(1, l)) for l in soft_label]
+        soft_label = [max(0, min(1, l)) for l in soft_label]
 
         return soft_label
 
