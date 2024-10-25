@@ -1,14 +1,14 @@
-from itertools import chain
-from pathlib import Path
 import argparse
 import os
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+import warnings
+from itertools import chain
+from pathlib import Path
 
 import numpy as np
-from tqdm import trange, tqdm
-from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
+from tqdm import trange, tqdm
+from torch.utils.data import DataLoader
 from sklearn.metrics import classification_report
 
 from datasets.twbird import TWBird
@@ -16,6 +16,10 @@ from nets.models import MAE_Swin
 from utils.record import write_loss_history
 from utils.checkpoint import save_checkpoint, load_checkpoint, save_and_cleanup_weights
 
+warnings.filterwarnings("ignore")
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+
+torch.manual_seed(21)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 TWBIRD_LABELS = [
@@ -31,6 +35,8 @@ TWBIRD_LABELS = [
     "TI-S", "DI-C", "PMU-S", "EZ-S", "CP-S", 
     "TM-C", "HL-S", "SC-S"
 ]
+with_nota = True
+print(f"#TWBIRD_LABELS: {len(TWBIRD_LABELS)}, NOTA: {with_nota}\n")
 
 class MLP(nn.Module):
     def __init__(self, in_features, out_features):
@@ -79,9 +85,7 @@ def train(args):
     for epoch in trange(args.epochs, desc="Epoch"):
         train_loss = 0
         classifier.train()
-        for i, (x, y) in tqdm(enumerate(train_dataloder), desc="Training", leave=False, total=len(train_dataloder)):
-            if i >= len(train_dataloder):
-                break
+        for _, (x, y) in tqdm(enumerate(train_dataloder), desc="Training", leave=False, total=len(train_dataloder)):
             x, y = x.to(DEVICE), y.to(DEVICE)
             latent = model.forward_feature(x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
             output = classifier(latent)
@@ -98,9 +102,7 @@ def train(args):
 
         val_loss = 0
         classifier.eval()
-        for i, (x, y) in tqdm(enumerate(val_dataloder), desc="Validation", leave=False, total=len(val_dataloder)):
-            if i >= len(val_dataloder):
-                break
+        for _, (x, y) in tqdm(enumerate(val_dataloder), desc="Validation", leave=False, total=len(val_dataloder)):
             x, y = x.to(DEVICE), y.to(DEVICE)
             latent = model.forward_feature(x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
             output = classifier(latent)
@@ -126,18 +128,23 @@ def inference(args):
     classifier.load_state_dict(torch.load(f"./weights/{model_record}/{result_record}/classifier_best.pth", map_location=DEVICE))
 
     classifier.eval()
-    pred_acts, true_acts = [], []
+    pred_species, true_species = [], []
     for _, (x, y) in tqdm(enumerate(test_dataloder), desc="Testing", total=len(test_dataloder)):
         x, y = x.to(DEVICE), y.to(DEVICE)
         latent = model.forward_feature(x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
         output = classifier(latent)
 
-        true_act = y.argmax(dim=1).cpu().tolist()
-        pred_act = torch.softmax(output, dim=1).argmax(dim=1).cpu().tolist()
-        true_acts.extend(true_act)
-        pred_acts.extend(pred_act)
-
-    report = classification_report(true_acts, pred_acts, target_names=TWBIRD_LABELS, zero_division=0)
+        # Multi-label classification
+        if with_nota:
+            true_species.append((y > (1/(len(TWBIRD_LABELS)+1))).cpu().numpy())
+        else:
+            true_species.append((y > (1/(len(TWBIRD_LABELS)))).cpu().numpy())
+        pred_species.append((torch.sigmoid(output) > 0.5).cpu().numpy())
+        
+    if with_nota:
+        report = classification_report(true_species, pred_species, target_names=TWBIRD_LABELS+["NOTA"], zero_division=0)
+    else:
+        report = classification_report(true_species, pred_species, target_names=TWBIRD_LABELS, zero_division=0)
     print(report)
     with open(f"results/{model_record}/{result_record}/classification_report.txt", "w") as f:
         f.write(report)        
@@ -154,15 +161,17 @@ if __name__ == "__main__":
         decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
         use_mask_2d=True
     )
-    classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS))  # no NOTA label
-    # classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS)+1)  # with NOTA label
+    if with_nota:
+        classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS)+1)
+    else:
+        classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS))
     model.to(DEVICE)
     classifier.to(DEVICE)
 
     # dataloader
-    train_dataloder = DataLoader(TWBird(src_file="./data/finetune/train.txt", labeled=True), batch_size=args.batch_size, num_workers=4, pin_memory=True)
-    val_dataloder = DataLoader(TWBird(src_file="./data/finetune/val.txt", labeled=True), batch_size=args.batch_size, num_workers=4, pin_memory=True)
-    test_dataloder = DataLoader(TWBird(src_file="./data/finetune/test.txt", labeled=True), batch_size=1)
+    train_dataloder = DataLoader(TWBird(src_file="./data/finetune/train.txt", labeled=True), batch_size=args.batch_size, num_workers=8, pin_memory=True)
+    val_dataloder = DataLoader(TWBird(src_file="./data/finetune/val.txt", labeled=True), batch_size=args.batch_size, num_workers=8, pin_memory=True)
+    test_dataloder = DataLoader(TWBird(src_file="./data/finetune/test.txt", labeled=True), num_workers=4, batch_size=1)
 
     # criterion & optimizer
     # freeze pretrain model

@@ -56,9 +56,7 @@ def train(args):
     for epoch in trange(start_epoch, args.epochs, desc="Epoch"):
         train_loss = 0
         model.train()
-        for i, (x, _) in tqdm(enumerate(train_dataloder), desc="Training", leave=False, total=len(train_dataloder)):
-            if i >= len(train_dataloder):
-                break
+        for _, (x, _) in tqdm(enumerate(train_dataloder), desc="Training", leave=False, total=len(train_dataloder)):
             x = x.to(DEVICE)
             optimizer.zero_grad()
             _, _, _, loss = model(x.float(), mask_ratio=args.mask_ratio)
@@ -75,9 +73,7 @@ def train(args):
 
         val_loss = 0
         model.eval()
-        for i, (x, _) in tqdm(enumerate(val_dataloder), desc="Validation", leave=False, total=len(val_dataloder)):
-            if i >= len(val_dataloder):
-                break
+        for _, (x, _) in tqdm(enumerate(val_dataloder), desc="Validation", leave=False, total=len(val_dataloder)):
             x = x.to(DEVICE)
             _, _, _, loss = model(x.float(), mask_ratio=args.mask_ratio)
             loss = loss.mean()
