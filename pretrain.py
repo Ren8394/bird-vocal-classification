@@ -109,8 +109,13 @@ if __name__ == "__main__":
         f"lr{str(args.learning_rate).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
 
     # AudioMAE Base Version
+    if args.window_size == 3.0 and args.hop_length == 0.5:
+        in_shape = (1, 320, 128)
+    elif args.window_size == 1.0 and args.hop_length == 0.5:
+        in_shape = (1, 128, 128)
+    
     model = MAE_Swin(
-        in_shape=(1, 320, 128), patch_size=(16, 16),
+        in_shape=in_shape, patch_size=(16, 16),
         encoder_embed_dim=768, encoder_depth=12, encoder_num_heads=12,
         decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16
     ).to(DEVICE)

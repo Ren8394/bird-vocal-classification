@@ -89,7 +89,10 @@ class TWBird(IterableDataset):
                     fbank_features = self._add_noise_aug(fbank_features)
 
                 fbank_features = rearrange(fbank_features, "f t -> 1 f t")
-                fbank_features = F.pad(fbank_features, (0, 0, 22, 0))
+                if self.window_size == 3.0 and self.hop_length == 0.5:
+                    fbank_features = F.pad(fbank_features, (0, 0, 11, 11))
+                elif self.window_size == 1.0 and self.hop_length == 0.5:
+                    fbank_features = F.pad(fbank_features, (0, 0, 15, 15))
 
                 if self.labeled:
                     soft_label = self._get_soft_label(
@@ -189,15 +192,15 @@ class TWBird(IterableDataset):
 if __name__ == "__main__":
     from torch.utils.data import DataLoader
 
-    dataset = TWBird(src_file="./data/finetune/test.txt", labeled=True)
-    # dataset = TWBird(src_file="./data/pretrain/train.txt")
+    # dataset = TWBird(src_file="./data/finetune/test.txt", labeled=True)
+    dataset = TWBird(src_file="./data/pretrain/train.txt", window_size=1.0, hop_length=0.5)
 
-    dataloader = DataLoader(dataset, batch_size=4, num_workers=4, pin_memory=True)
+    dataloader = DataLoader(dataset, batch_size=1, num_workers=4, pin_memory=True)
     for i, (feat, l) in enumerate(dataloader):
-        # print(feat.shape)
+        print(feat.shape)
         # print(l.shape)
         # print(len(dataloader))
-        print(l)
+        # print(l)
 
         if i >= 1:
             break
