@@ -106,7 +106,7 @@ if __name__ == "__main__":
         f"/w{str(args.window_size).replace('.', '')}" + \
         f"_h{str(args.hop_length).replace('.', '')}"
     result_record = \
-        f"lr{str(args.lr).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
+        f"lr{str(args.learning_rate).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
 
     # AudioMAE Base Version
     model = MAE_Swin(
@@ -136,7 +136,7 @@ if __name__ == "__main__":
     # optimizer & scheduler
     optimizer = torch.optim.AdamW(
         model.parameters(), 
-        lr=args.lr, 
+        lr=args.learning_rate, 
         weight_decay=args.weight_decay,
         betas=(0.9, 0.95),
     )

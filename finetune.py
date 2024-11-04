@@ -162,7 +162,7 @@ if __name__ == "__main__":
         f"/w{str(args.window_size).replace('.', '')}" + \
         f"_h{str(args.hop_length).replace('.', '')}"
     result_record = \
-        f"lr{str(args.lr).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
+        f"lr{str(args.learning_rate).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
 
     # pretrain model
     model = MAE_Swin(
@@ -196,7 +196,7 @@ if __name__ == "__main__":
     # freeze pretrain model
     for param in model.parameters():
         param.requires_grad = False
-    optimizer = torch.optim.AdamW(classifier.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(classifier.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     criterion = nn.BCEWithLogitsLoss()
     
     if args.train:
