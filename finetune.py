@@ -59,16 +59,20 @@ class MLP(nn.Module):
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    # Data
+    parser.add_argument("-w", "--window_size", type=float, default=3.0)
+    parser.add_argument("-h", "--hop_length", type=float, default=0.5)
+
     # Model & Dataset
     parser.add_argument("--weight", type=str, required=True, help="Path to the pre-trained model")
     parser.add_argument("--mask_t_ratio", type=float, default=0.2)
     parser.add_argument("--mask_f_ratio", type=float, default=0.2)
 
     # Hyperparameters
-    parser.add_argument("--epochs", type=int, default=32)
-    parser.add_argument("--batch_size", type=int, default=512)
-    parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--weight_decay", type=float, default=0.0001)
+    parser.add_argument("-e", "--epochs", type=int, default=32)
+    parser.add_argument("-b", "--batch_size", type=int, default=512)
+    parser.add_argument("-lr", "--learning_rate", type=float, default=0.001)
+    parser.add_argument("-wd", "--weight_decay", type=float, default=0.0001)
 
     # Decision
     parser.add_argument("--train", action="store_true")
@@ -135,24 +139,30 @@ def inference(args):
         output = classifier(latent)
 
         # Multi-label classification
-        if with_nota:
-            true_species.append((y > (1/(len(TWBIRD_LABELS)+1))).cpu().numpy())
-        else:
-            true_species.append((y > (1/(len(TWBIRD_LABELS)))).cpu().numpy())
-        pred_species.append((torch.sigmoid(output) > 0.5).cpu().numpy())
-        
+        thershold_prob = 1 / len(TWBIRD_LABELS)
+        true_species.append((y > thershold_prob).cpu().numpy())
+        pred_species.append((torch.sigmoid(output) > thershold_prob).cpu().numpy())
+    
+    true_species = np.concatenate(true_species, axis=0)
+    pred_species = np.concatenate(pred_species, axis=0)
+    np.savetxt(f"results/{model_record}/{result_record}/true_species.txt", true_species, fmt="%d")
+    np.savetxt(f"results/{model_record}/{result_record}/pred_species.txt", pred_species, fmt="%d")
     if with_nota:
         report = classification_report(true_species, pred_species, target_names=TWBIRD_LABELS+["NOTA"], zero_division=0)
     else:
         report = classification_report(true_species, pred_species, target_names=TWBIRD_LABELS, zero_division=0)
-    print(report)
     with open(f"results/{model_record}/{result_record}/classification_report.txt", "w") as f:
         f.write(report)        
 
 if __name__ == "__main__":
     args = parse_args()
-    model_record = f"linearProbing/AudioMAE/mr_t{str(args.mask_t_ratio).replace('.', '')}f{str(args.mask_f_ratio).replace('.', '')}"
-    result_record = f"lr{str(args.lr).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
+
+    model_record = \
+        f"linearProbing/AudioMAE/mr_t{str(args.mask_t_ratio).replace('.', '')}f{str(args.mask_f_ratio).replace('.', '')}" + \
+        f"/w{str(args.window_size).replace('.', '')}" + \
+        f"_h{str(args.hop_length).replace('.', '')}"
+    result_record = \
+        f"lr{str(args.lr).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
 
     # pretrain model
     model = MAE_Swin(

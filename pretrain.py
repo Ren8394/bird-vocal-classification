@@ -21,15 +21,19 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    # Data
+    parser.add_argument("-w", "--window_size", type=float, default=3.0)
+    parser.add_argument("-h", "--hop_length", type=float, default=0.5)
+
     # Model & Dataset
     parser.add_argument("--ckpt", type=str)
-    parser.add_argument("--mask_ratio", type=float, default=0.8)
+    parser.add_argument("-mr", "--mask_ratio", type=float, default=0.8)
 
     # Hyperparameters
-    parser.add_argument("--epochs", type=int, default=32)
-    parser.add_argument("--batch_size", type=int, default=512)
-    parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--weight_decay", type=float, default=0.0001)
+    parser.add_argument("-e", "--epochs", type=int, default=32)
+    parser.add_argument("-b", "--batch_size", type=int, default=512)
+    parser.add_argument("-lr", "--learning_rate", type=float, default=0.001)
+    parser.add_argument("-wd", "--weight_decay", type=float, default=0.0001)
 
     # Decision
     parser.add_argument("--train", action="store_true")
@@ -97,8 +101,12 @@ def inference():
 
 if __name__ == "__main__":
     args = parse_args()
-    model_record = f"pretrain/AudioMAE/mr{str(args.mask_ratio).replace('.', '')}"
-    result_record = f"lr{str(args.lr).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
+    model_record = \
+        f"pretrain/AudioMAE/mr{str(args.mask_ratio).replace('.', '')}" + \
+        f"/w{str(args.window_size).replace('.', '')}" + \
+        f"_h{str(args.hop_length).replace('.', '')}"
+    result_record = \
+        f"lr{str(args.lr).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
 
     # AudioMAE Base Version
     model = MAE_Swin(

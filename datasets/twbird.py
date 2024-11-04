@@ -17,8 +17,6 @@ LABEL_DIR = "~/Desktop/Audio_data/finetune_Label_txt"
 TARGET_PATH = "./data/Target_Label_20240606.csv"
 
 AUDIO_LENGTH = 59.9         # s
-WINDOW_SIZE = 3             # s
-HOP_LENGTH = 0.5            # s
 NUM_MEL_BIN = 128
 MIN_FREQ = 100              # Hz
 MAX_FREQ = 11000            # Hz
@@ -28,17 +26,21 @@ NORM_MEAN = -6.679596900939941
 NORM_STD = 2.211771011352539
 
 class TWBird(IterableDataset):
-    def __init__(self, src_file, labeled=False):
+    def __init__(self, src_file, labeled=False,
+                 window_size=3.0, hop_length=0.5
+                 ):
         super(TWBird, self).__init__()
         
         self.labeled = labeled
+        self.window_size = window_size
+        self.hop_length = hop_length
 
         self.file_paths = np.loadtxt(src_file, dtype=str)
         target_df = pd.read_csv(TARGET_PATH, sep=",", header=0)
         self.target = target_df["Label"].values.tolist()
         self.sub_target = [t.split("-")[0] + "-A" + t.split("-")[1] for t in self.target]
 
-        self.window_num = int(np.floor((AUDIO_LENGTH - WINDOW_SIZE) / HOP_LENGTH))
+        self.window_num = int(np.floor((AUDIO_LENGTH - window_size) / hop_length))
         self.total_samples = len(self.file_paths) * self.window_num
 
     def __len__(self):
@@ -61,8 +63,8 @@ class TWBird(IterableDataset):
             waveform = waveform.mean(dim=0, keepdim=True)
 
             for window_idx in range(self.window_num):
-                start_point = int(window_idx * HOP_LENGTH * sr)
-                end_point = int(window_idx * HOP_LENGTH * sr + WINDOW_SIZE * sr)
+                start_point = int(window_idx * self.hop_length * sr)
+                end_point = int(window_idx * self.hop_length * sr + self.window_size * sr)
                 sliced_waveform = waveform[:, start_point : end_point]
 
                 if self.labeled:
@@ -174,7 +176,13 @@ class TWBird(IterableDataset):
                         soft_label[-1] += overlap_percentage
 
         # normalize the soft label, make every element in the list to be in the range of [0, 1]
-        soft_label = [max(0, min(1, l)) for l in soft_label]
+        # min-max normalization
+        min_val = min(soft_label)
+        max_val = max(soft_label)
+        soft_label = [(l - min_val) / (max_val - min_val) for l in soft_label]
+
+        # clip the value to be in the range of [0, 1]
+        # soft_label = [max(0, min(1, l)) for l in soft_label]
 
         return soft_label
 
@@ -186,9 +194,10 @@ if __name__ == "__main__":
 
     dataloader = DataLoader(dataset, batch_size=4, num_workers=4, pin_memory=True)
     for i, (feat, l) in enumerate(dataloader):
-        print(feat.shape)
-        print(l.shape)
-        print(len(dataloader))
-        
-        if i >= 3:
+        # print(feat.shape)
+        # print(l.shape)
+        # print(len(dataloader))
+        print(l)
+
+        if i >= 1:
             break
