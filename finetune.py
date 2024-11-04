@@ -61,7 +61,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # Data
     parser.add_argument("-w", "--window_size", type=float, default=3.0)
-    parser.add_argument("-h", "--hop_length", type=float, default=0.5)
+    parser.add_argument("-hp", "--hop_length", type=float, default=0.5)
 
     # Model & Dataset
     parser.add_argument("--weight", type=str, required=True, help="Path to the pre-trained model")
@@ -179,9 +179,18 @@ if __name__ == "__main__":
     classifier.to(DEVICE)
 
     # dataloader
-    train_dataloder = DataLoader(TWBird(src_file="./data/finetune/train.txt", labeled=True), batch_size=args.batch_size, num_workers=8, pin_memory=True)
-    val_dataloder = DataLoader(TWBird(src_file="./data/finetune/val.txt", labeled=True), batch_size=args.batch_size, num_workers=8, pin_memory=True)
-    test_dataloder = DataLoader(TWBird(src_file="./data/finetune/test.txt", labeled=True), num_workers=4, batch_size=1)
+    train_dataloder = DataLoader(
+        TWBird(src_file="./data/finetune/train.txt", labeled=True, window_size=args.window_size, hop_length=args.hop_length), 
+        batch_size=args.batch_size, num_workers=8, pin_memory=True
+    )
+    val_dataloder = DataLoader(
+        TWBird(src_file="./data/finetune/val.txt", labeled=True, window_size=args.window_size, hop_length=args.hop_length), 
+        batch_size=args.batch_size, num_workers=8, pin_memory=True
+    )
+    test_dataloder = DataLoader(
+        TWBird(src_file="./data/finetune/test.txt", labeled=True, window_size=args.window_size, hop_length=args.hop_length), 
+        batch_size=1, num_workers=4
+    )
 
     # criterion & optimizer
     # freeze pretrain model

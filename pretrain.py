@@ -23,7 +23,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     # Data
     parser.add_argument("-w", "--window_size", type=float, default=3.0)
-    parser.add_argument("-h", "--hop_length", type=float, default=0.5)
+    parser.add_argument("-hp", "--hop_length", type=float, default=0.5)
 
     # Model & Dataset
     parser.add_argument("--ckpt", type=str)
@@ -120,9 +120,18 @@ if __name__ == "__main__":
         model = torch.nn.DataParallel(model)
 
     # dataloader
-    train_dataloder = DataLoader(TWBird(src_file="./data/pretrain/train.txt", labeled=False), batch_size=args.batch_size, num_workers=4, pin_memory=True)
-    val_dataloder = DataLoader(TWBird(src_file="./data/pretrain/val.txt", labeled=False), batch_size=args.batch_size, num_workers=4, pin_memory=True)
-    test_dataloder = DataLoader(TWBird(src_file="./data/pretrain/test.txt", labeled=False), batch_size=args.batch_size, num_workers=4, pin_memory=True)
+    train_dataloder = DataLoader(
+        TWBird(src_file="./data/pretrain/train.txt", labeled=False, window_size=args.window_size, hop_length=args.hop_length), 
+        batch_size=args.batch_size, num_workers=4, pin_memory=True
+    )
+    val_dataloder = DataLoader(
+        TWBird(src_file="./data/pretrain/val.txt", labeled=False, window_size=args.window_size, hop_length=args.hop_length), 
+        batch_size=args.batch_size, num_workers=4, pin_memory=True
+    )
+    test_dataloder = DataLoader(
+        TWBird(src_file="./data/pretrain/test.txt", labeled=False, window_size=args.window_size, hop_length=args.hop_length), 
+        batch_size=args.batch_size, num_workers=4, pin_memory=True
+    )
 
     # optimizer & scheduler
     optimizer = torch.optim.AdamW(
