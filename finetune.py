@@ -13,6 +13,7 @@ from sklearn.metrics import classification_report
 
 from datasets.twbird import TWBird
 from nets.models import MAE_Swin
+from nets.losses import FocalLoss, DiceLoss
 from utils.record import write_loss_history
 from utils.checkpoint import save_checkpoint, load_checkpoint, save_and_cleanup_weights
 
@@ -41,6 +42,7 @@ print(f"#TWBIRD_LABELS: {len(TWBIRD_LABELS)}, NOTA: {with_nota}\n")
 class MLP(nn.Module):
     def __init__(self, in_features, out_features):
         super(MLP, self).__init__()
+        self.out_features = out_features
         self.fc1 = nn.Linear(in_features, 256)
         self.fc2 = nn.Linear(256, 128)
         self.fc3 = nn.Linear(128, out_features)
@@ -57,6 +59,17 @@ class MLP(nn.Module):
         x = self.fc3(x)
         return x
 
+class CustomLoss(nn.Module):
+    def __init__(self, alpha=0.25):
+        super(CustomLoss, self).__init__()
+        self.alpha = alpha
+        self.focal = FocalLoss()
+        self.dice = DiceLoss()
+    
+    def forward(self, inputs, targets):
+        loss = self.alpha * self.focal(inputs, targets) + (1 - self.alpha) * self.dice(inputs, targets)
+        return loss
+
 def parse_args():
     parser = argparse.ArgumentParser()
     # Data
@@ -67,6 +80,9 @@ def parse_args():
     parser.add_argument("--weight", type=str, required=True, help="Path to the pre-trained model")
     parser.add_argument("--mask_t_ratio", type=float, default=0.2)
     parser.add_argument("--mask_f_ratio", type=float, default=0.2)
+
+    # Loss
+    parser.add_argument("-a", "--alpha", type=float, default=0.50)
 
     # Hyperparameters
     parser.add_argument("-e", "--epochs", type=int, default=32)
@@ -159,10 +175,10 @@ if __name__ == "__main__":
 
     model_record = \
         f"linearProbing/AudioMAE/mr_t{str(args.mask_t_ratio).replace('.', '')}f{str(args.mask_f_ratio).replace('.', '')}" + \
-        f"/w{str(args.window_size).replace('.', '')}" + \
-        f"_h{str(args.hop_length).replace('.', '')}"
+        f"/w{str(args.window_size).replace('.', '')}_h{str(args.hop_length).replace('.', '')}"
     result_record = \
-        f"lr{str(args.learning_rate).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
+        f"a{str(args.alpha).replace('.', '')}" + \
+        f"_lr{str(args.learning_rate).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
 
     # pretrain model
     if args.window_size == 3.0 and args.hop_length == 0.5:
@@ -180,20 +196,36 @@ if __name__ == "__main__":
         classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS)+1)
     else:
         classifier = MLP(in_features=768, out_features=len(TWBIRD_LABELS))
+    print(f"Classifier: {classifier.out_features}")
     model.to(DEVICE)
     classifier.to(DEVICE)
 
     # dataloader
     train_dataloder = DataLoader(
-        TWBird(src_file="./data/finetune/train.txt", labeled=True, window_size=args.window_size, hop_length=args.hop_length), 
+        TWBird(
+            src_file="./data/finetune/train.txt", 
+            labeled=True, 
+            window_size=args.window_size, 
+            hop_length=args.hop_length,
+            with_nota=with_nota), 
         batch_size=args.batch_size, num_workers=8, pin_memory=True
     )
     val_dataloder = DataLoader(
-        TWBird(src_file="./data/finetune/val.txt", labeled=True, window_size=args.window_size, hop_length=args.hop_length), 
+        TWBird(
+            src_file="./data/finetune/val.txt", 
+            labeled=True, 
+            window_size=args.window_size, 
+            hop_length=args.hop_length,
+            with_nota=with_nota), 
         batch_size=args.batch_size, num_workers=8, pin_memory=True
     )
     test_dataloder = DataLoader(
-        TWBird(src_file="./data/finetune/test.txt", labeled=True, window_size=args.window_size, hop_length=args.hop_length), 
+        TWBird(
+            src_file="./data/finetune/test.txt", 
+            labeled=True, 
+            window_size=args.window_size, 
+            hop_length=args.hop_length,
+            with_nota=with_nota), 
         batch_size=1, num_workers=4
     )
 
@@ -202,7 +234,7 @@ if __name__ == "__main__":
     for param in model.parameters():
         param.requires_grad = False
     optimizer = torch.optim.AdamW(classifier.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    criterion = nn.BCEWithLogitsLoss()
+    criterion = CustomLoss(alpha=args.alpha)
     
     if args.train:
         Path(f"./results/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
@@ -214,6 +246,9 @@ if __name__ == "__main__":
             f.write("-"*67+"\n")
             for name, param in classifier.named_parameters():
                 f.write(f"Finetune Parameter: {name}, Requires Grad: {param.requires_grad}\n")
+        # Save the arguments record
+        with open(f"./results/{model_record}/{result_record}/args.txt", "w") as f:
+            f.write(f"{args}")
         train(args)
         print(f"Finish training. {model_record}")
     if args.inference:
