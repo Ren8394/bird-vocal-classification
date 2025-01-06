@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 from tqdm import trange, tqdm
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from sklearn.metrics import classification_report
 
 from datasets.twbird import TWBird
@@ -24,20 +25,21 @@ torch.manual_seed(21)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 TWBIRD_LABELS = [
-    "YB-S", "HA-S", "CR-S", "ML-S", "AA-S", 
-    "AC-S", "NV-S", "LS-S", "PM-S", "PAL-S", 
-    "PN-S", "FH-S", "HAC-S", "BG-S", "SB-S", 
-    "ME-S", "GB-S", "PS-S", "PA-S", "SE-S", 
-    "AM-S", "HS-S", "MH-S", "DI-S", "TM-S", 
-    "TS-S", "PNI-S", "IP-S", "BS-S", "PC-S", 
-    "RG-S", "LS-C", "HA-C", "AM-C", "TR-C", 
-    "CM-C", "OS-S", "FH-C", "HL-C", "NJ-S", 
-    "YB-C", "ACO-C", "PM-C", "DL-C", "SE-C", 
-    "TI-S", "DI-C", "PMU-S", "EZ-S", "CP-S", 
+    "YB-S", "HA-S", "CR-S", "ML-S", "AA-S",
+    "AC-S", "NV-S", "LS-S", "PM-S", "PAL-S",
+    "PN-S", "FH-S", "HAC-S", "BG-S", "SB-S",
+    "ME-S", "GB-S", "PS-S", "PA-S", "SE-S",
+    "AM-S", "HS-S", "MH-S", "DI-S", "TM-S",
+    "TS-S", "PNI-S", "IP-S", "BS-S", "PC-S",
+    "RG-S", "LS-C", "HA-C", "AM-C", "TR-C",
+    "CM-C", "OS-S", "FH-C", "HL-C", "NJ-S",
+    "YB-C", "ACO-C", "PM-C", "DL-C", "SE-C",
+    "TI-S", "DI-C", "PMU-S", "EZ-S", "CP-S",
     "TM-C", "HL-S", "SC-S"
 ]
-with_nota = True
+with_nota = False
 print(f"#TWBIRD_LABELS: {len(TWBIRD_LABELS)}, NOTA: {with_nota}\n")
+
 
 class MLP(nn.Module):
     def __init__(self, in_features, out_features):
@@ -52,12 +54,13 @@ class MLP(nn.Module):
 
         self.drop = nn.Dropout(0.2)
         self.relu = nn.ReLU()
-    
+
     def forward(self, x):
         x = self.drop(self.relu(self.bn1(self.fc1(x))))
         x = self.drop(self.relu(self.bn2(self.fc2(x))))
         x = self.fc3(x)
         return x
+
 
 class CustomLoss(nn.Module):
     def __init__(self, alpha=0.25):
@@ -65,10 +68,13 @@ class CustomLoss(nn.Module):
         self.alpha = alpha
         self.focal = FocalLoss()
         self.dice = DiceLoss()
-    
+
     def forward(self, inputs, targets):
-        loss = self.alpha * self.focal(inputs, targets) + (1 - self.alpha) * self.dice(inputs, targets)
+        loss = self.alpha * \
+            self.focal(inputs, targets) + (1 - self.alpha) * \
+            self.dice(inputs, targets)
         return loss
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -77,7 +83,8 @@ def parse_args():
     parser.add_argument("-hp", "--hop_length", type=float, default=0.5)
 
     # Model & Dataset
-    parser.add_argument("--weight", type=str, required=True, help="Path to the pre-trained model")
+    parser.add_argument("--weight", type=str, required=True,
+                        help="Path to the pre-trained model")
     parser.add_argument("--mask_t_ratio", type=float, default=0.2)
     parser.add_argument("--mask_f_ratio", type=float, default=0.2)
 
@@ -96,24 +103,37 @@ def parse_args():
 
     return parser.parse_args()
 
-def train(args):
-    model.load_state_dict(torch.load(args.weight, map_location=DEVICE), strict=False)
 
+def train(args):
+    model.load_state_dict(torch.load(
+        args.weight, map_location=DEVICE), strict=False)
+    # scheduler
+    scheduler = ReduceLROnPlateau(
+        optimizer, mode="min", factor=0.1, patience=20)
+
+    stale = 0
     best_loss = np.inf
-    Path(f"./results/{model_record}/{result_record}/train_loss.txt").unlink(missing_ok=True)
-    Path(f"./results/{model_record}/{result_record}/val_loss.txt").unlink(missing_ok=True)
+    Path(
+        f"./results/{model_record}/{result_record}/train_loss.txt").unlink(missing_ok=True)
+    Path(
+        f"./results/{model_record}/{result_record}/val_loss.txt").unlink(missing_ok=True)
     for epoch in trange(args.epochs, desc="Epoch"):
         train_loss = 0
         classifier.train()
         for _, (x, y) in tqdm(enumerate(train_dataloder), desc="Training", leave=False, total=len(train_dataloder)):
             x, y = x.to(DEVICE), y.to(DEVICE)
-            latent = model.forward_feature(x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
+            latent = model.forward_feature(
+                x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
             output = classifier(latent)
 
             optimizer.zero_grad()
             loss = criterion(output, y)
             loss.backward()
+
+            # Gradient Clipping
+            torch.nn.utils.clip_grad_norm_(classifier.parameters(), 1.0)
             optimizer.step()
+
             train_loss += loss.item()
         write_loss_history(
             epoch=epoch, loss=train_loss/len(train_dataloder),
@@ -124,7 +144,8 @@ def train(args):
         classifier.eval()
         for _, (x, y) in tqdm(enumerate(val_dataloder), desc="Validation", leave=False, total=len(val_dataloder)):
             x, y = x.to(DEVICE), y.to(DEVICE)
-            latent = model.forward_feature(x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
+            latent = model.forward_feature(
+                x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
             output = classifier(latent)
 
             loss = criterion(output, y)
@@ -135,40 +156,61 @@ def train(args):
         )
         if val_loss/len(val_dataloder) < best_loss:
             best_loss = val_loss/len(val_dataloder)
-            torch.save(model.state_dict(), f"./weights/{model_record}/{result_record}/pretrain_best.pth")
-            torch.save(classifier.state_dict(), f"./weights/{model_record}/{result_record}/classifier_best.pth")
+            torch.save(model.state_dict(
+            ), f"./weights/{model_record}/{result_record}/pretrain_best.pth")
+            torch.save(classifier.state_dict(
+            ), f"./weights/{model_record}/{result_record}/classifier_best.pth")
+            stale = 0
+        else:
+            stale += 1
+            if stale > 50:
+                for file in ["train_loss.txt", "val_loss.txt"]:
+                    with open(f"./results/{model_record}/{result_record}/{file}", "a") as f:
+                        f.write(f"Early Stopping at Epoch {epoch}\n")
+                break
         save_checkpoint(
             model, optimizer, epoch, best_loss,
             filename=f"./ckpt/{model_record}/{result_record}/best.pth"
         )
+        scheduler.step(val_loss/len(val_dataloder))
+
 
 @torch.no_grad()
 def inference(args):
-    model.load_state_dict(torch.load(f"./weights/{model_record}/{result_record}/pretrain_best.pth", map_location=DEVICE))
-    classifier.load_state_dict(torch.load(f"./weights/{model_record}/{result_record}/classifier_best.pth", map_location=DEVICE))
+    model.load_state_dict(torch.load(
+        f"./weights/{model_record}/{result_record}/pretrain_best.pth", map_location=DEVICE))
+    classifier.load_state_dict(torch.load(
+        f"./weights/{model_record}/{result_record}/classifier_best.pth", map_location=DEVICE))
 
     classifier.eval()
     pred_species, true_species = [], []
     for _, (x, y) in tqdm(enumerate(test_dataloder), desc="Testing", total=len(test_dataloder)):
         x, y = x.to(DEVICE), y.to(DEVICE)
-        latent = model.forward_feature(x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
+        latent = model.forward_feature(
+            x.float(), mask_col_ratio=args.mask_t_ratio, mask_row_ratio=args.mask_f_ratio)
         output = classifier(latent)
 
         # Multi-label classification
         thershold_prob = 1 / len(TWBIRD_LABELS)
         true_species.append((y > thershold_prob).cpu().numpy())
-        pred_species.append((torch.sigmoid(output) > thershold_prob).cpu().numpy())
-    
+        pred_species.append(
+            (torch.sigmoid(output) > thershold_prob).cpu().numpy())
+
     true_species = np.concatenate(true_species, axis=0)
     pred_species = np.concatenate(pred_species, axis=0)
-    np.savetxt(f"results/{model_record}/{result_record}/true_species.txt", true_species, fmt="%d")
-    np.savetxt(f"results/{model_record}/{result_record}/pred_species.txt", pred_species, fmt="%d")
+    np.savetxt(
+        f"results/{model_record}/{result_record}/true_species.txt", true_species, fmt="%d")
+    np.savetxt(
+        f"results/{model_record}/{result_record}/pred_species.txt", pred_species, fmt="%d")
     if with_nota:
-        report = classification_report(true_species, pred_species, target_names=TWBIRD_LABELS+["NOTA"], zero_division=0)
+        report = classification_report(
+            true_species, pred_species, target_names=TWBIRD_LABELS+["NOTA"], zero_division=0)
     else:
-        report = classification_report(true_species, pred_species, target_names=TWBIRD_LABELS, zero_division=0)
+        report = classification_report(
+            true_species, pred_species, target_names=TWBIRD_LABELS, zero_division=0)
     with open(f"results/{model_record}/{result_record}/classification_report.txt", "w") as f:
-        f.write(report)        
+        f.write(report)
+
 
 if __name__ == "__main__":
     args = parse_args()
@@ -203,29 +245,29 @@ if __name__ == "__main__":
     # dataloader
     train_dataloder = DataLoader(
         TWBird(
-            src_file="./data/finetune/train.txt", 
-            labeled=True, 
-            window_size=args.window_size, 
+            src_file="./data/finetune/train.txt",
+            labeled=True,
+            window_size=args.window_size,
             hop_length=args.hop_length,
-            with_nota=with_nota), 
+            with_nota=with_nota),
         batch_size=args.batch_size, num_workers=8, pin_memory=True
     )
     val_dataloder = DataLoader(
         TWBird(
-            src_file="./data/finetune/val.txt", 
-            labeled=True, 
-            window_size=args.window_size, 
+            src_file="./data/finetune/val.txt",
+            labeled=True,
+            window_size=args.window_size,
             hop_length=args.hop_length,
-            with_nota=with_nota), 
+            with_nota=with_nota),
         batch_size=args.batch_size, num_workers=8, pin_memory=True
     )
     test_dataloder = DataLoader(
         TWBird(
-            src_file="./data/finetune/test.txt", 
-            labeled=True, 
-            window_size=args.window_size, 
+            src_file="./data/finetune/test.txt",
+            labeled=True,
+            window_size=args.window_size,
             hop_length=args.hop_length,
-            with_nota=with_nota), 
+            with_nota=with_nota),
         batch_size=1, num_workers=4
     )
 
@@ -233,19 +275,25 @@ if __name__ == "__main__":
     # freeze pretrain model
     for param in model.parameters():
         param.requires_grad = False
-    optimizer = torch.optim.AdamW(classifier.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(classifier.parameters(
+    ), lr=args.learning_rate, weight_decay=args.weight_decay)
     criterion = CustomLoss(alpha=args.alpha)
-    
+
     if args.train:
-        Path(f"./results/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
-        Path(f"./weights/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
-        Path(f"./ckpt/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
+        Path(
+            f"./results/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
+        Path(
+            f"./weights/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
+        Path(
+            f"./ckpt/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
         with open(f"./results/{model_record}/{result_record}/gradient.txt", "w") as f:
             for name, param in model.named_parameters():
-                f.write(f"Pretrain Parameter: {name}, Requires Grad: {param.requires_grad}\n")
+                f.write(
+                    f"Pretrain Parameter: {name}, Requires Grad: {param.requires_grad}\n")
             f.write("-"*67+"\n")
             for name, param in classifier.named_parameters():
-                f.write(f"Finetune Parameter: {name}, Requires Grad: {param.requires_grad}\n")
+                f.write(
+                    f"Finetune Parameter: {name}, Requires Grad: {param.requires_grad}\n")
         # Save the arguments record
         with open(f"./results/{model_record}/{result_record}/args.txt", "w") as f:
             f.write(f"{args}")
