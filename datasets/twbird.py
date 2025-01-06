@@ -27,13 +27,14 @@ NORM_STD = 2.211771011352539
 
 class TWBird(IterableDataset):
     def __init__(self, src_file, labeled=False,
-                 window_size=3.0, hop_length=0.5
+                 window_size=3.0, hop_length=0.5, with_nota=True
                  ):
         super(TWBird, self).__init__()
         
         self.labeled = labeled
         self.window_size = window_size
         self.hop_length = hop_length
+        self.with_nota = with_nota
 
         self.file_paths = np.loadtxt(src_file, dtype=str)
         target_df = pd.read_csv(TARGET_PATH, sep=",", header=0)
@@ -141,9 +142,6 @@ class TWBird(IterableDataset):
         return overlap_percentage
     
     def _get_soft_label(self, filename, start_time, end_time):
-        # Select files accepted NOTA label (skip)
-        with_nota = True
-
         # read labels from the txt file
         labels_df = pd.read_csv(
             f"{LABEL_DIR}/{filename}.txt", sep="\t", header=None,
@@ -153,14 +151,14 @@ class TWBird(IterableDataset):
 
         # select labels that are overlapped with the current window
         labels_df = labels_df[(labels_df["start_time"] <= end_time) & (labels_df["end_time"] >= start_time)]
-        if with_nota:
+        if self.with_nota:
             soft_label = [1/(len(self.target)+1)] * (len(self.target)+1)  # [target, NOTA]  
         else:
             soft_label = [1/(len(self.target))] * (len(self.target))  # [target]
 
         # if no label is found, set the last element NOTA to 1
         if labels_df.empty:
-            if with_nota:
+            if self.with_nota:
                 soft_label[-1] = 1
         # if there are labels, calculate the soft label based on the overlap percentage and basic label
         else:
@@ -175,7 +173,7 @@ class TWBird(IterableDataset):
                     soft_label[self.sub_target.index(label)] += overlap_percentage * 0.6
                 # NOTA label
                 else:
-                    if with_nota:
+                    if self.with_nota:
                         soft_label[-1] += overlap_percentage
 
         # normalize the soft label, make every element in the list to be in the range of [0, 1]
