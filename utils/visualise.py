@@ -24,33 +24,19 @@ def plot_loss_history(loss_history, filename=None):
     else:
         plt.show()
 
-def plot_gt_mask_pred(gt, mask, pred, paste, filename=None):
-    assert gt.shape == mask.shape == pred.shape == paste.shape
-    dim = gt.shape[0]
-    duration = 100 # points
+def plot_gt_mask_pred(gt, mask, pred, filename=None):
+    assert gt.shape == mask.shape == pred.shape
+    
+    duration = gt.shape[1]
+    feq_band = gt.shape[-1]
 
-    # plot (dim rows, 4 cols)
-    fig, axs = plt.subplots(nrows=dim, ncols=4, figsize=(17, 9), sharex=True, sharey=True)
-    for i in range(dim):
-        axs[i, 0].plot(gt[i][:duration], color=COLOR_LIST[i])
-        axs[i, 1].plot(mask[i][:duration], color=COLOR_LIST[i])
-        axs[i, 2].plot(pred[i][:duration], color=COLOR_LIST[i])
-        axs[i, 3].plot(paste[i][:duration], color=COLOR_LIST[i])
-    # set titles
-    axs[0, 0].set_title("Original")
-    axs[0, 1].set_title("Masked")
-    axs[0, 2].set_title("Reconstructed")
-    axs[0, 3].set_title("Reconstruction + Visible")
-    # set labels
-    axs[dim-1, 0].set_xlabel("Time")
-    axs[dim-1, 1].set_xlabel("Time")
-    axs[dim-1, 2].set_xlabel("Time")
-    axs[dim-1, 3].set_xlabel("Time")
-
-    title = "Ground Truth, Masked, Reconstructed, Reconstruction + Visible" if filename is None else Path(filename).stem
-    fig.suptitle(title)
+    fig, axs = plt.subplots(nrows=1, ncols=3, figsize=(23, 7), sharex=False, sharey=True)
+    for i, spec in enumerate((gt, mask, pred)):
+        axs[i].imshow(spec.T, aspect="auto", origin="lower", cmap="viridis")
+        axs[i].set_title("Ground Truth" if i == 0 else "Masked" if i == 1 else "Prediction")
+        axs[i].set_xlabel("Time Frames")
+        axs[i].set_ylabel("Frequency Bands")
     plt.tight_layout()
-    plt.subplots_adjust(wspace=0)
     if filename is not None:
         Path.mkdir(Path.cwd().joinpath(Path(filename).parent), exist_ok=True, parents=True)
         plt.savefig(Path.cwd().joinpath(filename))

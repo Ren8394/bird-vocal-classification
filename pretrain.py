@@ -16,6 +16,7 @@ from datasets.twbird import TWBird
 from nets.models import MAE_Swin
 from utils.record import write_loss_history
 from utils.checkpoint import save_checkpoint, load_checkpoint, save_and_cleanup_weights
+from utils.visualise import plot_gt_mask_pred
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -27,6 +28,7 @@ def parse_args():
 
     # Model & Dataset
     parser.add_argument("--ckpt", type=str)
+    parser.add_argument("--weight", type=str)
     parser.add_argument("-mr", "--mask_ratio", type=float, default=0.8)
 
     # Hyperparameters
@@ -63,7 +65,7 @@ def train(args):
         for _, (x, _) in tqdm(enumerate(train_dataloder), desc="Training", leave=False, total=len(train_dataloder)):
             x = x.to(DEVICE)
             optimizer.zero_grad()
-            _, _, _, loss = model(x.float(), mask_ratio=args.mask_ratio)
+            _, _, _, loss = model(x=x.float(), mask_ratio=args.mask_ratio)
             loss = loss.mean()
             loss.backward()
             optimizer.step()
@@ -79,7 +81,7 @@ def train(args):
         model.eval()
         for _, (x, _) in tqdm(enumerate(val_dataloder), desc="Validation", leave=False, total=len(val_dataloder)):
             x = x.to(DEVICE)
-            _, _, _, loss = model(x.float(), mask_ratio=args.mask_ratio)
+            _, _, _, loss = model(x=x.float(), mask_ratio=args.mask_ratio)
             loss = loss.mean()
             val_loss += loss.item()
             
@@ -96,8 +98,47 @@ def train(args):
         )
 
 @torch.no_grad()
-def inference():
-    pass
+def inference(args):
+    if args.weight:
+        weight = torch.load(args.weight, map_location=DEVICE)
+        model.load_state_dict(weight)
+    else:
+        try:
+            weight_path = sorted(Path(f"/media/birdsong/disk02/bird-vocal-classification/weights/{model_record}/{result_record}").glob("*.pth"))[-1]
+            weight = torch.load(weight_path, map_location=DEVICE)
+            model.load_state_dict(weight)
+        except:
+            print("No weight found.")
+
+    # get used model
+    model_to_use = model.module if isinstance(model, torch.nn.DataParallel) else model
+
+    # model inference
+    for i, (x, _) in tqdm(enumerate(test_dataloder), desc="Inference", total=len(test_dataloder)):
+        if i % 100000 != 0:
+            continue
+        x = x.to(DEVICE)
+        pred, mask, _, _ = model(x=x.float(), mask_ratio=args.mask_ratio)
+        
+        # reconstruct spectrogram w/ prediction and mask
+        pred = model_to_use.unpatchify(pred)
+        mask = mask.unsqueeze(-1).repeat(
+            1, 1, model_to_use.patch_embed.patch_size[0] * model_to_use.patch_embed.patch_size[1] * 1
+        )
+        mask = model_to_use.unpatchify(mask)
+        x_masked = x * (1 - mask)
+        x_reconstructed = pred * mask + x_masked
+
+        # visualise
+        x = x.squeeze(dim=0).cpu().detach().numpy()
+        x_masked = x_masked.squeeze(dim=0).cpu().detach().numpy()
+        x_reconstructed = x_reconstructed.squeeze(dim=0).cpu().detach().numpy()
+
+        plot_gt_mask_pred(
+            gt=x[0], mask=x_masked[0], pred=x_reconstructed[0],
+            filename=f"./results/{model_record}/{result_record}/inference_{i//100000}.jpg"
+        )
+
 
 if __name__ == "__main__":
     args = parse_args()
@@ -127,15 +168,15 @@ if __name__ == "__main__":
     # dataloader
     train_dataloder = DataLoader(
         TWBird(src_file="./data/pretrain/train.txt", labeled=False, window_size=args.window_size, hop_length=args.hop_length), 
-        batch_size=args.batch_size, num_workers=4, pin_memory=True
+        batch_size=args.batch_size, num_workers=8, pin_memory=True
     )
     val_dataloder = DataLoader(
         TWBird(src_file="./data/pretrain/val.txt", labeled=False, window_size=args.window_size, hop_length=args.hop_length), 
-        batch_size=args.batch_size, num_workers=4, pin_memory=True
+        batch_size=args.batch_size, num_workers=8, pin_memory=True
     )
     test_dataloder = DataLoader(
         TWBird(src_file="./data/pretrain/test.txt", labeled=False, window_size=args.window_size, hop_length=args.hop_length), 
-        batch_size=args.batch_size, num_workers=4, pin_memory=True
+        batch_size=1, num_workers=4, pin_memory=True
     )
 
     # optimizer & scheduler
@@ -157,7 +198,7 @@ if __name__ == "__main__":
         train(args)
         print(f"Finish training. {model_record}")
     if args.inference:
-        inference()
+        inference(args)
 
 
 
