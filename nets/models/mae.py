@@ -96,11 +96,11 @@ class MAE(nn.Module):
         Unpatchify the input data tensor.
 
         Args:
-            x (torch.Tensor): input data tensor (B, L, PH*PW*C)
+            x (torch.Tensor): input data tensor (B, L=(gr*gc), PH*PW*C)
         Returns:
             torch.Tensor: unpatchified data tensor (B, C, H, W)
         """
-        x = rearrange(x, "b (h w) (ph pw c) -> b c (h ph) (w pw)", h=self.in_height, w=self.in_width, ph=self.patch_height, pw=self.patch_width)
+        x = rearrange(x, "b (gr gc) (ph pw c) -> b c (gr ph) (gc pw)", gr=self.grid_row, gc=self.grid_col, ph=self.patch_height, pw=self.patch_width)
         return x
 
     def random_mask(self, x: torch.Tensor, mask_ratio: float):
@@ -122,7 +122,7 @@ class MAE(nn.Module):
         
         # generate mask (0 - keep, 1 - mask)
         mask = torch.ones([B, L], device=x.device)
-        mask[:, len_keep:] = 0
+        mask[:, :len_keep] = 0
         mask = torch.gather(mask, dim=1, index=ids_restore)
 
         # mask the input data
