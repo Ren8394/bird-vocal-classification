@@ -160,7 +160,22 @@ class TWBird(IterableDataset):
 
         return rolled_noisy_spectrogram
 
-    def _calculate_overlap(self, label_time: tuple, window_time: tuple) -> float:
+    def _calculate_overlap(
+        self,
+        label_time: tuple,
+        window_time: tuple,
+        mode: str = "1"
+    ) -> float:
+        """
+        Calculate the overlap percentage between the label and the window
+        Args:
+            label_time (tuple): the start and end time of the label
+            window_time (tuple): the start and end time of the window
+            mode (str): the mode to calculate the overlap percentage
+            ---
+            mode "1" -> overlap% = overlap_duration / label_duration
+            mode "2" -> overlap% = overlap_duration / window_length
+        """
         overlap_start, overlap_end = max(label_time[0], window_time[0]), min(
             label_time[1], window_time[1])
         overlap_duration = max(0, overlap_end - overlap_start)
@@ -196,15 +211,25 @@ class TWBird(IterableDataset):
         else:
             for _, row in labels_df.iterrows():
                 label = row["label"]
-                overlap_percentage = self._calculate_overlap(label_time=(
-                    row["start_time"], row["end_time"]), window_time=(start_time, end_time))
+
+                # overlap% = overlap_duration / label_duration
+                # overlap_percentage = self._calculate_overlap(
+                #     label_time=(row["start_time"], row["end_time"]),
+                #     window_time=(start_time, end_time),
+                #     mode="1")
+
+                # overlap% = overlap_duration / window_length
+                overlap_percentage = self._calculate_overlap(
+                    label_time=(row["start_time"], row["end_time"]),
+                    window_time=(start_time, end_time),
+                    mode="2")
                 # label in the target list
                 if label in self.target:
                     soft_label[self.target.index(label)] += overlap_percentage
                 # label in the sub_target list
                 elif label in self.sub_target:
                     soft_label[self.sub_target.index(
-                        label)] += overlap_percentage * 0.6
+                        label)] += overlap_percentage * 1.0  # temporary weight
                 # NOTA label
                 else:
                     if self.with_nota:
