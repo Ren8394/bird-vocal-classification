@@ -1,3 +1,6 @@
+# Other
+.DS_Store
+
 # all contents in data folder but keep the folder
 /data/*
 !/data/*.py
