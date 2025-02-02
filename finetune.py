@@ -41,24 +41,34 @@ with_nota = False
 print(f"#TWBIRD_LABELS: {len(TWBIRD_LABELS)}, NOTA: {with_nota}\n")
 
 
+# class MLP(nn.Module):
+#     def __init__(self, in_features, out_features):
+#         super(MLP, self).__init__()
+#         self.out_features = out_features
+#         self.fc1 = nn.Linear(in_features, 256)
+#         self.fc2 = nn.Linear(256, 128)
+#         self.fc3 = nn.Linear(128, out_features)
+
+#         self.bn1 = nn.BatchNorm1d(256)
+#         self.bn2 = nn.BatchNorm1d(128)
+
+#         self.drop = nn.Dropout(0.2)
+#         self.relu = nn.ReLU()
+
+#     def forward(self, x):
+#         x = self.drop(self.relu(self.bn1(self.fc1(x))))
+#         x = self.drop(self.relu(self.bn2(self.fc2(x))))
+#         x = self.fc3(x)
+#         return x
+
 class MLP(nn.Module):
     def __init__(self, in_features, out_features):
         super(MLP, self).__init__()
         self.out_features = out_features
-        self.fc1 = nn.Linear(in_features, 256)
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, out_features)
-
-        self.bn1 = nn.BatchNorm1d(256)
-        self.bn2 = nn.BatchNorm1d(128)
-
-        self.drop = nn.Dropout(0.2)
-        self.relu = nn.ReLU()
+        self.head = nn.Linear(in_features, out_features)
 
     def forward(self, x):
-        x = self.drop(self.relu(self.bn1(self.fc1(x))))
-        x = self.drop(self.relu(self.bn2(self.fc2(x))))
-        x = self.fc3(x)
+        x = self.head(x)
         return x
 
 
@@ -68,11 +78,15 @@ class CustomLoss(nn.Module):
         self.alpha = alpha
         self.focal = FocalLoss()
         self.dice = DiceLoss()
+        self.bce = nn.BCEWithLogitsLoss()
 
     def forward(self, inputs, targets):
-        loss = self.alpha * \
-            self.focal(inputs, targets) + (1 - self.alpha) * \
-            self.dice(inputs, targets)
+        # loss = self.alpha * \
+        #     self.focal(inputs, targets) + (1 - self.alpha) * \
+        #     self.dice(inputs, targets)
+        loss = \
+            self.alpha * self.focal(inputs, targets) + \
+            (1 - self.alpha) * self.bce(inputs, targets)
         return loss
 
 
