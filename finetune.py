@@ -191,8 +191,8 @@ def inference(args):
         output = classifier(latent)
 
         # Multi-label classification
-        thershold_prob = 1 / len(TWBIRD_LABELS)
-        true_species.append((y > thershold_prob).cpu().numpy())
+        thershold_prob = 0.5
+        true_species.append((y == 1).cpu().numpy())
         pred_species.append(
             (torch.sigmoid(output) > thershold_prob).cpu().numpy())
 
@@ -249,6 +249,7 @@ if __name__ == "__main__":
             labeled=True,
             window_size=args.window_size,
             hop_length=args.hop_length,
+            status="train",
             with_nota=with_nota),
         batch_size=args.batch_size, num_workers=8, pin_memory=True
     )
@@ -258,6 +259,7 @@ if __name__ == "__main__":
             labeled=True,
             window_size=args.window_size,
             hop_length=args.hop_length,
+            status="inference",
             with_nota=with_nota),
         batch_size=args.batch_size, num_workers=8, pin_memory=True
     )
@@ -267,6 +269,7 @@ if __name__ == "__main__":
             labeled=True,
             window_size=args.window_size,
             hop_length=args.hop_length,
+            status="inference",
             with_nota=with_nota),
         batch_size=1, num_workers=4
     )

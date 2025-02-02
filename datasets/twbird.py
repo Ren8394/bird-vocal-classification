@@ -28,13 +28,16 @@ NORM_STD = 2.211771011352539
 
 class TWBird(IterableDataset):
     def __init__(self, src_file, labeled=False,
-                 window_size=3.0, hop_length=0.5, with_nota=False
+                 window_size=3.0, hop_length=0.5,
+                 status="train", with_nota=False
                  ):
         super(TWBird, self).__init__()
 
         self.labeled = labeled
         self.window_size = window_size
         self.hop_length = hop_length
+        assert status in ["train", "inference"]
+        self.status = status
         self.with_nota = with_nota
 
         self.file_paths = np.loadtxt(src_file, dtype=str)
@@ -108,14 +111,22 @@ class TWBird(IterableDataset):
                     fbank_features = F.pad(fbank_features, (0, 0, 15, 15))
 
                 if self.labeled:
-                    soft_label = self._get_soft_label(
-                        filename=Path(self.file_paths[file_idx]).stem,
-                        start_time=(start_point / sr),
-                        end_time=(end_point / sr)
-                    )
-                    if soft_label is None:
+                    if self.status == "train":
+                        lables = self._get_soft_label(
+                            filename=Path(self.file_paths[file_idx]).stem,
+                            start_time=(start_point / sr),
+                            end_time=(end_point / sr)
+                        )
+                    else:
+                        lables = self._get_hard_label(
+                            filename=Path(self.file_paths[file_idx]).stem,
+                            start_time=(start_point / sr),
+                            end_time=(end_point / sr)
+                        )
+
+                    if lables is None:
                         continue
-                    yield fbank_features, torch.Tensor(soft_label)
+                    yield fbank_features, torch.Tensor(lables)
                 else:
                     yield fbank_features, torch.Tensor([-1] * len(self.target))
 
@@ -207,6 +218,39 @@ class TWBird(IterableDataset):
         soft_label = np.where(soft_label > 1, 1, soft_label)
 
         return soft_label
+
+    def _get_hard_label(self, filename, start_time, end_time):
+        # read labels from the txt file
+        labels_df = pd.read_csv(
+            f"{LABEL_DIR}/{filename}.txt", sep="\t", header=None,
+            names=["start_time", "end_time", "label"], dtype={"start_time": float, "end_time": float, "label": str}
+        )
+        labels_df["label"] = labels_df["label"].apply(
+            lambda x: re.sub(r"\d", "", x))
+        # select labels that are overlapped with the current window
+        labels_df = labels_df[(labels_df["start_time"] <= end_time) & (
+            labels_df["end_time"] >= start_time)]
+
+        if self.with_nota:
+            hard_label = [0] * (len(self.target)+1)
+        else:
+            hard_label = [0] * len(self.target)
+
+        if labels_df.empty:
+            if self.with_nota:
+                hard_label[-1] = 1
+        else:
+            for _, row in labels_df.iterrows():
+                label = row["label"]
+                if label in self.target:
+                    hard_label[self.target.index(label)] = 1
+                elif label in self.sub_target:
+                    hard_label[self.sub_target.index(label)] = 1
+                else:
+                    if self.with_nota:
+                        hard_label[-1] = 1
+
+        return hard_label
 
 
 if __name__ == "__main__":
