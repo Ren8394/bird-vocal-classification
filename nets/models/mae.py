@@ -19,6 +19,7 @@ from nets.layers.lora import LoRA_ViTBlock
 from nets.giants.swin_transformer_block import SwinTransformerBlock
 from nets.models.vit import ViTBlock
 
+
 class MAE(nn.Module):
     def __init__(
         self, in_shape, patch_size,
@@ -28,7 +29,7 @@ class MAE(nn.Module):
     ):
         """
         Masked Autoencoder w/ Vision Transformer (MAE-ViT)
-        
+
         Args:
             in_shape (tuple): input shape of the image (C, H, W)
             patch_size (tuple): size of the patch (H, W)
@@ -60,21 +61,27 @@ class MAE(nn.Module):
 
         # encoder
         self.cls_token = nn.Parameter(torch.zeros(1, 1, encoder_embed_dim))
-        self.encoder_pos_embed = PositionEncoding_2Dto1D(encoder_embed_dim, (self.grid_row, self.grid_col), cls_token=True, requires_grad=False)
+        self.encoder_pos_embed = PositionEncoding_2Dto1D(
+            encoder_embed_dim, (self.grid_row, self.grid_col), cls_token=True, requires_grad=False)
         self.encoder_blocks = nn.ModuleList([
-            ViTBlock(dim=encoder_embed_dim, num_heads=encoder_num_heads, mlp_ratio=4.0, qkv_bias=True, qk_norm=None)
+            ViTBlock(dim=encoder_embed_dim, num_heads=encoder_num_heads,
+                     mlp_ratio=4.0, qkv_bias=True, qk_norm=None)
             for _ in range(encoder_depth)])
         self.encoder_norm = nn.LayerNorm(encoder_embed_dim)
 
         # decoder
-        self.decoder_embed = nn.Linear(encoder_embed_dim, decoder_embed_dim, bias=True)
+        self.decoder_embed = nn.Linear(
+            encoder_embed_dim, decoder_embed_dim, bias=True)
         self.mask_token = nn.Parameter(torch.zeros(1, 1, decoder_embed_dim))
-        self.decoder_pos_embed = PositionEncoding_2Dto1D(decoder_embed_dim, (self.grid_row, self.grid_col), cls_token=True, requires_grad=False)
+        self.decoder_pos_embed = PositionEncoding_2Dto1D(
+            decoder_embed_dim, (self.grid_row, self.grid_col), cls_token=True, requires_grad=False)
         self.decoder_blocks = nn.ModuleList([
-            Block(dim=decoder_embed_dim, num_heads=decoder_num_heads, mlp_ratio=4.0, qkv_bias=True, qk_norm=None)
+            Block(dim=decoder_embed_dim, num_heads=decoder_num_heads,
+                  mlp_ratio=4.0, qkv_bias=True, qk_norm=None)
             for _ in range(decoder_depth)])
         self.decoder_norm = nn.LayerNorm(decoder_embed_dim)
-        self.decoder_head = nn.Linear(decoder_embed_dim, self.in_channel * self.patch_height * self.patch_width, bias=True)
+        self.decoder_head = nn.Linear(
+            decoder_embed_dim, self.in_channel * self.patch_height * self.patch_width, bias=True)
 
         # initialize weights
         self.apply(self._init_weights)
@@ -88,7 +95,8 @@ class MAE(nn.Module):
         Returns:
             torch.Tensor: patchified data tensor (B, L, PH*PW*C)
         """
-        x = rearrange(x, "b c (h ph) (w pw) -> b (h w) (ph pw c)", ph=self.patch_height, pw=self.patch_width)
+        x = rearrange(x, "b c (h ph) (w pw) -> b (h w) (ph pw c)",
+                      ph=self.patch_height, pw=self.patch_width)
         return x
 
     def unpatchify(self, x: torch.Tensor):
@@ -100,7 +108,8 @@ class MAE(nn.Module):
         Returns:
             torch.Tensor: unpatchified data tensor (B, C, H, W)
         """
-        x = rearrange(x, "b (gr gc) (ph pw c) -> b c (gr ph) (gc pw)", gr=self.grid_row, gc=self.grid_col, ph=self.patch_height, pw=self.patch_width)
+        x = rearrange(x, "b (gr gc) (ph pw c) -> b c (gr ph) (gc pw)", gr=self.grid_row,
+                      gc=self.grid_col, ph=self.patch_height, pw=self.patch_width)
         return x
 
     def random_mask(self, x: torch.Tensor, mask_ratio: float):
@@ -119,14 +128,15 @@ class MAE(nn.Module):
         ids_shuffle = torch.argsort(noise, dim=1)
         ids_restore = torch.argsort(ids_shuffle, dim=1)
         ids_keep = ids_shuffle[:, :len_keep]
-        
+
         # generate mask (0 - keep, 1 - mask)
         mask = torch.ones([B, L], device=x.device)
         mask[:, :len_keep] = 0
         mask = torch.gather(mask, dim=1, index=ids_restore)
 
         # mask the input data
-        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
+        x_masked = torch.gather(
+            x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
 
         return x_masked, mask, ids_restore
 
@@ -140,7 +150,7 @@ class MAE(nn.Module):
             mask_col_ratio (float): mask ratio for column
         """
         B, L, D = x.shape
-        num_row, num_col = self.grid_row, self.grid_col # num_row => F, num_col => T
+        num_row, num_col = self.grid_row, self.grid_col  # num_row => F, num_col => T
 
         len_keep_col = int(num_col * (1 - mask_col_ratio))
         len_keep_row = int(num_row * (1 - mask_row_ratio))
@@ -154,30 +164,34 @@ class MAE(nn.Module):
         ids_shuffle_row = torch.argsort(noise_row, dim=1)
         ids_restore_row = torch.argsort(ids_shuffle_row, dim=1)
 
-
         # generate mask (0 - keep, 1 - mask)
         mask_row = torch.ones([B, num_row], device=x.device)
         mask_row[:, :len_keep_row] = 0  # (B, num_row)
-        mask_row = repeat(torch.gather(mask_row, dim=1, index=ids_restore_row), "b r -> b c r", c=num_col)  # (B, num_col, num_row)
+        mask_row = repeat(torch.gather(mask_row, dim=1, index=ids_restore_row),
+                          "b r -> b c r", c=num_col)  # (B, num_col, num_row)
         mask_col = torch.ones([B, num_col], device=x.device)
         mask_col[:, :len_keep_col] = 0  # (B, num_col)
-        mask_col = repeat(torch.gather(mask_col, dim=1, index=ids_restore_col), "b c -> b c r", r=num_row)  # (B, num_col, num_row)
+        mask_col = repeat(torch.gather(mask_col, dim=1, index=ids_restore_col),
+                          "b c -> b c r", r=num_row)  # (B, num_col, num_row)
         # combine row and column mask
         mask = 1 - (1 - mask_col) * (1 - mask_row)  # (B, num_col, num_row
 
         # get ids to keep, and restore
-        id2res = torch.Tensor(list(range(B * num_col * num_row))).reshape(B, num_col, num_row).to(x.device)
+        id2res = torch.Tensor(list(range(B * num_col * num_row))
+                              ).reshape(B, num_col, num_row).to(x.device)
         id2res = id2res + 666 * mask
         id2res2 = torch.argsort(id2res.flatten(start_dim=1))
-        ids_keep=id2res2.flatten(start_dim=1)[:, :len_keep_row * len_keep_col]
+        ids_keep = id2res2.flatten(start_dim=1)[
+            :, :len_keep_row * len_keep_col]
         ids_restore = torch.argsort(id2res2.flatten(start_dim=1))
         mask = mask.flatten(start_dim=1)
 
         # mask the input data
-        x_masked = torch.gather(x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
+        x_masked = torch.gather(
+            x, dim=1, index=ids_keep.unsqueeze(-1).repeat(1, 1, D))
 
         return x_masked, mask, ids_restore
-    
+
     def forward_encoder(self, x: torch.Tensor, mask_ratio: float = 0.1, mask_row_ratio: float = 0.1, mask_col_ratio: float = 0.1):
         B = x.shape[0]
         # patch embedding
@@ -185,10 +199,11 @@ class MAE(nn.Module):
 
         # positional encoding w/o cls token
         x = x + self.encoder_pos_embed.pe[:, 1:, :]
-        
+
         # mask the input data
         if self.use_mask_2d:
-            x_masked, mask, ids_restore = self.random_mask_2d(x, mask_row_ratio, mask_col_ratio)
+            x_masked, mask, ids_restore = self.random_mask_2d(
+                x, mask_row_ratio, mask_col_ratio)
         else:
             x_masked, mask, ids_restore = self.random_mask(x, mask_ratio)
 
@@ -203,7 +218,7 @@ class MAE(nn.Module):
         x = self.encoder_norm(x)
 
         return x, mask, ids_restore
-    
+
     def forward_encoder_no_mask(self, x: torch.Tensor):
         B = x.shape[0]
         # patch embedding
@@ -224,7 +239,7 @@ class MAE(nn.Module):
 
         return x
 
-    def forward_decoder(self, x, ids_restore):        
+    def forward_decoder(self, x, ids_restore):
         # token embedding
         x = self.decoder_embed(x)
         B, L, D = x.shape
@@ -232,7 +247,8 @@ class MAE(nn.Module):
         # add mask token
         mask_token = self.mask_token.repeat(B, ids_restore.shape[1] + 1 - L, 1)
         x_no_cls = torch.cat((x[:, 1:, :], mask_token), dim=1)
-        x_no_cls = torch.gather(x_no_cls, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, D))
+        x_no_cls = torch.gather(
+            x_no_cls, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, D))
         x = torch.cat((x[:, :1, :], x_no_cls), dim=1)
 
         # position encoding
@@ -264,8 +280,12 @@ class MAE(nn.Module):
         if self.use_mask_2d == False and mask_ratio == 0:
             x_masked = self.forward_encoder_no_mask(x)
         else:
-            x_masked, _, _ = self.forward_encoder(x, mask_ratio, mask_row_ratio, mask_col_ratio)
-        latent = x_masked[:, 0] # cls token
+            x_masked, _, _ = self.forward_encoder(
+                x, mask_ratio, mask_row_ratio, mask_col_ratio)
+
+        # global pool without cls token
+        latent = x_masked[:, 1:, :].mean(dim=1)
+        # latent = x_masked[:, 0] # cls token
         return latent
 
     def forward(self, x, mask_ratio: float = 0.1, mask_row_ratio: float = 0.1, mask_col_ratio: float = 0.1):
@@ -279,7 +299,8 @@ class MAE(nn.Module):
             mask_col_ratio (float): mask ratio for column, used when use_mask_2d is True
 
         """
-        x_masked, mask, ids_restore = self.forward_encoder(x, mask_ratio, mask_row_ratio, mask_col_ratio)
+        x_masked, mask, ids_restore = self.forward_encoder(
+            x, mask_ratio, mask_row_ratio, mask_col_ratio)
         x_reconstructed = self.forward_decoder(x_masked, ids_restore)
         loss = self.forward_loss(x, x_reconstructed, mask)
         return x_reconstructed, mask, x_masked, loss
@@ -299,11 +320,13 @@ class MAE(nn.Module):
         mean = x_patch.mean(dim=-1, keepdim=True)
         var = x_patch.var(dim=-1, keepdim=True)
         x_patch = (x_patch - mean) / (var + 1.e-6)**.5
-        
+
         loss = (y - x_patch) ** 2
-        loss = loss.mean(dim=-1)                   # (B, L), mean loss for each patch
-        loss = (loss * mask).sum() / mask.sum()    # mean loss for each masked patch
-        
+        # (B, L), mean loss for each patch
+        loss = loss.mean(dim=-1)
+        # mean loss for each masked patch
+        loss = (loss * mask).sum() / mask.sum()
+
         return loss
 
     def _init_weights(self, layer):
@@ -324,12 +347,13 @@ class MAE(nn.Module):
             nn.init.constant_(layer.bias, 0)
             nn.init.constant_(layer.weight, 1.0)
 
+
 class MAE_Bert(MAE):
     def __init__(self, bert_adapter_size=128, adapter_requires_grad=False, **kwargs):
         """
         Masked Autoencoder w/ Vision Transformer (MAE-ViT)
         Add residual adapter to the encoder.
-        
+
         Args:
             adapter_size (int): adapter size
             adapter_requires_grad (bool): adapter requires grad or not
@@ -338,7 +362,8 @@ class MAE_Bert(MAE):
         super(MAE_Bert, self).__init__(**kwargs)
 
         self.encoder_blocks = nn.ModuleList([
-            Bert_ViTBlock(dim=self.encoder_embed_dim, num_heads=self.encoder_num_heads, qkv_bias=True, qk_norm=False, adapter_size=bert_adapter_size)
+            Bert_ViTBlock(dim=self.encoder_embed_dim, num_heads=self.encoder_num_heads,
+                          qkv_bias=True, qk_norm=False, adapter_size=bert_adapter_size)
             for _ in range(self.encoder_depth)])
 
         # Set requires_grad for adapter and other parameters
@@ -354,15 +379,17 @@ class MAE_Bert(MAE):
                 for name, param in block.named_parameters():
                     if "adapter" in name:
                         param.requires_grad = False
+
 
 class MAE_LoRA(MAE):
     def __init__(self, lora_rank=4, adapter_requires_grad=False, **kwargs):
         super(MAE_LoRA, self).__init__(**kwargs)
 
         self.encoder_blocks = nn.ModuleList([
-            LoRA_ViTBlock(dim=self.encoder_embed_dim, num_heads=self.encoder_num_heads, qkv_bias=True, lora_rank=lora_rank)
+            LoRA_ViTBlock(dim=self.encoder_embed_dim,
+                          num_heads=self.encoder_num_heads, qkv_bias=True, lora_rank=lora_rank)
             for _ in range(self.encoder_depth)])
-        
+
         # Set requires_grad for adapter and other parameters
         if adapter_requires_grad:
             for param in self.parameters():
@@ -377,10 +404,11 @@ class MAE_LoRA(MAE):
                     if "adapter" in name:
                         param.requires_grad = False
 
+
 class MAE_Swin(MAE):
     def __init__(
         self,
-        **kwargs,           
+        **kwargs,
     ):
         super(MAE_Swin, self).__init__(**kwargs)
 
@@ -406,7 +434,7 @@ class MAE_Swin(MAE):
             )
         self.decoder_blocks = nn.ModuleList(decoder_module)
 
-    def forward_decoder(self, x, ids_restore):        
+    def forward_decoder(self, x, ids_restore):
         # token embedding
         x = self.decoder_embed(x)
         B, L, D = x.shape
@@ -414,7 +442,8 @@ class MAE_Swin(MAE):
         # add mask token
         mask_token = self.mask_token.repeat(B, ids_restore.shape[1] + 1 - L, 1)
         x_no_cls = torch.cat((x[:, 1:, :], mask_token), dim=1)
-        x_no_cls = torch.gather(x_no_cls, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, D))
+        x_no_cls = torch.gather(
+            x_no_cls, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, D))
         x = torch.cat((x[:, :1, :], x_no_cls), dim=1)
 
         # position encoding
