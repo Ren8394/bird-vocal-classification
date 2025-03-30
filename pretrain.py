@@ -1,24 +1,25 @@
+from utils.visualise import plot_gt_mask_pred
+from utils.checkpoint import save_checkpoint, load_checkpoint, save_and_cleanup_weights
+from utils.record import write_loss_history
+from nets.models import MAE_Swin
+from datasets.twbird import TWBird
+import torch
+from torch.utils.data import DataLoader
+from tqdm import trange, tqdm
+import numpy as np
+import matplotlib.pyplot as plt
+import warnings
 from pathlib import Path
 import argparse
 import os
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-import warnings
 warnings.filterwarnings("ignore")
 
-import matplotlib.pyplot as plt
-import numpy as np
-from tqdm import trange, tqdm
-from torch.utils.data import DataLoader
-import torch
 torch.random.manual_seed(2024)
 
-from datasets.twbird import TWBird
-from nets.models import MAE_Swin
-from utils.record import write_loss_history
-from utils.checkpoint import save_checkpoint, load_checkpoint, save_and_cleanup_weights
-from utils.visualise import plot_gt_mask_pred
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -43,6 +44,7 @@ def parse_args():
 
     return parser.parse_args()
 
+
 def train(args):
 
     if args.ckpt:
@@ -55,8 +57,10 @@ def train(args):
     else:
         start_epoch = 0
         best_loss = np.inf
-        Path(f"./results/{model_record}/{result_record}/train_loss.txt").unlink(missing_ok=True)
-        Path(f"./results/{model_record}/{result_record}/val_loss.txt").unlink(missing_ok=True)
+        Path(
+            f"./results/{model_record}/{result_record}/train_loss.txt").unlink(missing_ok=True)
+        Path(
+            f"./results/{model_record}/{result_record}/val_loss.txt").unlink(missing_ok=True)
 
     # model training
     for epoch in trange(start_epoch, args.epochs, desc="Epoch"):
@@ -70,7 +74,7 @@ def train(args):
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
-            
+
         scheduler.step()
         write_loss_history(
             epoch=epoch, loss=train_loss/len(train_dataloder),
@@ -84,18 +88,20 @@ def train(args):
             _, _, _, loss = model(x=x.float(), mask_ratio=args.mask_ratio)
             loss = loss.mean()
             val_loss += loss.item()
-            
+
         write_loss_history(
             epoch=epoch, loss=val_loss/len(val_dataloder),
             filename=f"./results/{model_record}/{result_record}/val_loss.txt"
         )
         if val_loss/len(val_dataloder) < best_loss:
             best_loss = val_loss/len(val_dataloder)
-            save_and_cleanup_weights(model, f"/media/birdsong/disk02/bird-vocal-classification/weights/{model_record}/{result_record}/best_e{epoch}.pth")
+            save_and_cleanup_weights(
+                model, f"/media/birdsong/disk02/bird-vocal-classification/weights/{model_record}/{result_record}/best_e{epoch}.pth")
         save_checkpoint(
             model, optimizer, epoch, best_loss,
             filename=f"/media/birdsong/disk02/bird-vocal-classification/ckpt/{model_record}/{result_record}/best.pth.tar"
         )
+
 
 @torch.no_grad()
 def inference(args):
@@ -104,14 +110,16 @@ def inference(args):
         model.load_state_dict(weight)
     else:
         try:
-            weight_path = sorted(Path(f"/media/birdsong/disk02/bird-vocal-classification/weights/{model_record}/{result_record}").glob("*.pth"))[-1]
+            weight_path = sorted(Path(
+                f"/media/birdsong/disk02/bird-vocal-classification/weights/{model_record}/{result_record}").glob("*.pth"))[-1]
             weight = torch.load(weight_path, map_location=DEVICE)
             model.load_state_dict(weight)
         except:
             print("No weight found.")
 
     # get used model
-    model_to_use = model.module if isinstance(model, torch.nn.DataParallel) else model
+    model_to_use = model.module if isinstance(
+        model, torch.nn.DataParallel) else model
 
     # model inference
     for i, (x, _) in tqdm(enumerate(test_dataloder), desc="Inference", total=len(test_dataloder)):
@@ -119,11 +127,12 @@ def inference(args):
             continue
         x = x.to(DEVICE)
         pred, mask, _, _ = model(x=x.float(), mask_ratio=args.mask_ratio)
-        
+
         # reconstruct spectrogram w/ prediction and mask
         pred = model_to_use.unpatchify(pred)
         mask = mask.unsqueeze(-1).repeat(
-            1, 1, model_to_use.patch_embed.patch_size[0] * model_to_use.patch_embed.patch_size[1] * 1
+            1, 1, model_to_use.patch_embed.patch_size[0] *
+            model_to_use.patch_embed.patch_size[1] * 1
         )
         mask = model_to_use.unpatchify(mask)
         x_masked = x * (1 - mask)
@@ -150,11 +159,11 @@ if __name__ == "__main__":
         f"lr{str(args.learning_rate).split('.')[-1]}_wd{str(args.weight_decay).split('.')[-1]}_b{args.batch_size}_e{args.epochs}"
 
     # AudioMAE Base Version
-    if args.window_size == 3.0 and args.hop_length == 0.5:
+    if args.window_size == 3.0:
         in_shape = (1, 320, 128)
-    elif args.window_size == 1.0 and args.hop_length == 0.5:
+    elif args.window_size == 1.0:
         in_shape = (1, 128, 128)
-    
+
     model = MAE_Swin(
         in_shape=in_shape, patch_size=(16, 16),
         encoder_embed_dim=768, encoder_depth=12, encoder_num_heads=12,
@@ -167,38 +176,43 @@ if __name__ == "__main__":
 
     # dataloader
     train_dataloder = DataLoader(
-        TWBird(src_file="./data/pretrain/train.txt", labeled=False, window_size=args.window_size, hop_length=args.hop_length), 
+        TWBird(src_file="./data/pretrain/train.txt", labeled=False,
+               window_size=args.window_size, hop_length=args.hop_length),
         batch_size=args.batch_size, num_workers=8, pin_memory=True
     )
     val_dataloder = DataLoader(
-        TWBird(src_file="./data/pretrain/val.txt", labeled=False, window_size=args.window_size, hop_length=args.hop_length), 
+        TWBird(src_file="./data/pretrain/val.txt", labeled=False,
+               window_size=args.window_size, hop_length=args.hop_length),
         batch_size=args.batch_size, num_workers=8, pin_memory=True
     )
     test_dataloder = DataLoader(
-        TWBird(src_file="./data/pretrain/test.txt", labeled=False, window_size=args.window_size, hop_length=args.hop_length), 
+        TWBird(src_file="./data/pretrain/test.txt", labeled=False,
+               window_size=args.window_size, hop_length=args.hop_length),
         batch_size=1, num_workers=4, pin_memory=True
     )
 
     # optimizer & scheduler
     optimizer = torch.optim.AdamW(
-        model.parameters(), 
-        lr=args.learning_rate, 
+        model.parameters(),
+        lr=args.learning_rate,
         weight_decay=args.weight_decay,
         betas=(0.9, 0.95),
     )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
-    
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs)
+
     if args.train:
-        Path(f"./results/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
-        Path(f"/media/birdsong/disk02/bird-vocal-classification/weights/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
-        Path(f"/media/birdsong/disk02/bird-vocal-classification/ckpt/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
+        Path(
+            f"./results/{model_record}/{result_record}").mkdir(exist_ok=True, parents=True)
+        Path(f"/media/birdsong/disk02/bird-vocal-classification/weights/{model_record}/{result_record}").mkdir(
+            exist_ok=True, parents=True)
+        Path(f"/media/birdsong/disk02/bird-vocal-classification/ckpt/{model_record}/{result_record}").mkdir(
+            exist_ok=True, parents=True)
         with open(f"./results/{model_record}/{result_record}/gradient.txt", "w") as f:
             for name, param in model.named_parameters():
-                f.write(f"Pretrain Parameter: {name}, Requires Grad: {param.requires_grad}\n")
+                f.write(
+                    f"Pretrain Parameter: {name}, Requires Grad: {param.requires_grad}\n")
         train(args)
         print(f"Finish training. {model_record}")
     if args.inference:
         inference(args)
-
-
-

@@ -3,6 +3,7 @@ import os
 
 import torch
 
+
 def save_checkpoint(model, optimizer, epoch, best_loss, filename="checkpoint.pth.tar"):
     state = {
         "epoch": epoch,
@@ -12,6 +13,7 @@ def save_checkpoint(model, optimizer, epoch, best_loss, filename="checkpoint.pth
     }
     torch.save(state, filename)
 
+
 def load_checkpoint(model, optimizer, filename="checkpoint.pth.tar", device="cpu"):
     checkpoint = torch.load(filename, map_location=device)
 
@@ -20,16 +22,20 @@ def load_checkpoint(model, optimizer, filename="checkpoint.pth.tar", device="cpu
         optimizer.load_state_dict(checkpoint["optimizer"])
     epoch = checkpoint["epoch"]
     best_loss = checkpoint["best_loss"]
-    
+
     return model, optimizer, epoch, best_loss
 
 
 def save_and_cleanup_weights(model, out_path, max_checkpoints=3):
-    torch.save(model.state_dict(), out_path)
-    
+    if isinstance(model, torch.nn.DataParallel):
+        torch.save(model.module.state_dict(), out_path)
+    else:
+        torch.save(model.state_dict(), out_path)
+
     # Get list of all weights files and sort by modification time
-    weights_files = sorted(Path(out_path).parent.glob("*.pth"), key=os.path.getmtime)
-    
+    weights_files = sorted(Path(out_path).parent.glob(
+        "*.pth"), key=os.path.getmtime)
+
     # If number of weights files exceeds max_checkpoints, remove the oldest ones
     while len(weights_files) > max_checkpoints:
         oldest_weight = weights_files.pop(0)
