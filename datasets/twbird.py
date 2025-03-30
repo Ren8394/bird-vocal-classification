@@ -14,7 +14,8 @@ from torchaudio.transforms import FrequencyMasking, TimeMasking
 NON_LABELED_AUDIO_DIR = "~/Desktop/Audio_data/pretrain_Audio"
 LABELED_AUDIO_DIR = "~/Desktop/Audio_data/finetune_Audio"
 LABEL_DIR = "~/Desktop/Audio_data/finetune_Label_txt"
-TARGET_PATH = "./data/Target_Label_20240606.csv"
+# TARGET_PATH = "./data/Target_Label_20240606.csv"
+TARGET_PATH = "./data/Filtered_Target_Label_20240606.csv"
 
 AUDIO_LENGTH = 59.9         # s
 NUM_MEL_BIN = 128
@@ -49,6 +50,7 @@ class TWBird(IterableDataset):
         self.window_num = int(
             np.floor((AUDIO_LENGTH - window_size) / hop_length))
         self.total_samples = len(self.file_paths) * self.window_num
+        print("total samples:", self.total_samples)
 
         self.label_weights = target_df["Median Duration"].to_numpy()
         self.label_weights = window_size / self.label_weights
@@ -105,28 +107,37 @@ class TWBird(IterableDataset):
                     fbank_features = self._add_noise_aug(fbank_features)
 
                 fbank_features = rearrange(fbank_features, "f t -> 1 f t")
-                if self.window_size == 3.0 and self.hop_length == 0.5:
+                if self.window_size == 3.0:
                     fbank_features = F.pad(fbank_features, (0, 0, 11, 11))
-                elif self.window_size == 1.0 and self.hop_length == 0.5:
+                elif self.window_size == 1.0:
                     fbank_features = F.pad(fbank_features, (0, 0, 15, 15))
 
                 if self.labeled:
                     if self.status == "train":
-                        lables = self._get_soft_label(
-                            filename=Path(self.file_paths[file_idx]).stem,
-                            start_time=(start_point / sr),
-                            end_time=(end_point / sr)
-                        )
-                    else:
-                        lables = self._get_hard_label(
+                        # overlapping method
+                        labels = self._get_soft_label(
                             filename=Path(self.file_paths[file_idx]).stem,
                             start_time=(start_point / sr),
                             end_time=(end_point / sr)
                         )
 
-                    if lables is None:
+                        # # label smoothing
+                        # labels = self._get_hard_label(
+                        #     filename=Path(self.file_paths[file_idx]).stem,
+                        #     start_time=(start_point / sr),
+                        #     end_time=(end_point / sr)
+                        # )
+                        # labels = self._label_smoothing(labels)
+                    else:
+                        labels = self._get_hard_label(
+                            filename=Path(self.file_paths[file_idx]).stem,
+                            start_time=(start_point / sr),
+                            end_time=(end_point / sr)
+                        )
+
+                    if labels is None:
                         continue
-                    yield fbank_features, torch.Tensor(lables)
+                    yield fbank_features, torch.Tensor(labels)
                 else:
                     yield fbank_features, torch.Tensor([-1] * len(self.target))
 
@@ -188,7 +199,8 @@ class TWBird(IterableDataset):
         # read labels from the txt file
         labels_df = pd.read_csv(
             f"{LABEL_DIR}/{filename}.txt", sep="\t", header=None,
-            names=["start_time", "end_time", "label"], dtype={"start_time": float, "end_time": float, "label": str}
+            names=["start_time", "end_time", "label"],
+            dtype={"start_time": float, "end_time": float, "label": str}
         )
         labels_df["label"] = labels_df["label"].apply(
             lambda x: re.sub(r"\d", "", x))   # remove numbers in the label
@@ -212,7 +224,7 @@ class TWBird(IterableDataset):
             for _, row in labels_df.iterrows():
                 label = row["label"]
 
-                # overlap% = overlap_duration / label_duration
+                # # overlap% = overlap_duration / label_duration
                 # overlap_percentage = self._calculate_overlap(
                 #     label_time=(row["start_time"], row["end_time"]),
                 #     window_time=(start_time, end_time),
@@ -223,22 +235,24 @@ class TWBird(IterableDataset):
                     label_time=(row["start_time"], row["end_time"]),
                     window_time=(start_time, end_time),
                     mode="2")
+
                 # label in the target list
                 if label in self.target:
                     soft_label[self.target.index(label)] += overlap_percentage
                 # label in the sub_target list
                 elif label in self.sub_target:
                     soft_label[self.sub_target.index(
-                        label)] += overlap_percentage * 1.0  # temporary weight
+                        label)] += overlap_percentage * 0.6  # temporary weight
                 # NOTA label
                 else:
                     if self.with_nota:
                         soft_label[-1] += overlap_percentage
 
         # multiply the label weights
-        soft_label = np.array(soft_label) * self.label_weights
+        # soft_label = np.array(soft_label) * self.label_weights
 
         # clip the value to be in the range of [0, 1]
+        soft_label = np.array(soft_label)
         soft_label = np.where(soft_label < 0, 0, soft_label)
         soft_label = np.where(soft_label > 1, 1, soft_label)
 
@@ -248,7 +262,8 @@ class TWBird(IterableDataset):
         # read labels from the txt file
         labels_df = pd.read_csv(
             f"{LABEL_DIR}/{filename}.txt", sep="\t", header=None,
-            names=["start_time", "end_time", "label"], dtype={"start_time": float, "end_time": float, "label": str}
+            names=["start_time", "end_time", "label"],
+            dtype={"start_time": float, "end_time": float, "label": str}
         )
         labels_df["label"] = labels_df["label"].apply(
             lambda x: re.sub(r"\d", "", x))
@@ -264,6 +279,8 @@ class TWBird(IterableDataset):
         if labels_df.empty:
             if self.with_nota:
                 hard_label[-1] = 1
+            else:
+                return None
         else:
             for _, row in labels_df.iterrows():
                 label = row["label"]
@@ -277,21 +294,41 @@ class TWBird(IterableDataset):
 
         return hard_label
 
+    def _label_smoothing(self, target, epsilon=0.1):
+        n_classes = len(target)
+        target = target * (1 - epsilon) + epsilon / n_classes
+        return target
+
 
 if __name__ == "__main__":
     from torch.utils.data import DataLoader
+    import matplotlib.pyplot as plt
 
-    # dataset = TWBird(src_file="./data/finetune/test.txt", labeled=True)
-    dataset = TWBird(src_file="./data/pretrain/train.txt",
-                     window_size=1.0, hop_length=0.5)
+    dataset = TWBird(
+        src_file="./data/finetune/test.txt", labeled=True, hop_length=0.25)
+    # dataset = TWBird(
+    #   src_file="./data/pretrain/train.txt",
+    #   window_size=1.0, hop_length=0.5)
 
     dataloader = DataLoader(dataset, batch_size=1,
                             num_workers=4, pin_memory=True)
     for i, (feat, l) in enumerate(dataloader):
-        print(feat.shape)
-        # print(l.shape)
-        # print(len(dataloader))
-        # print(l)
+        print("feat shape:", feat.shape)
+        print("label shape:", l.shape)
+        print("label:", dataset.target[np.argmax(l.squeeze())])
+        print("label value:", l.squeeze(), "\n")
+
+        feat = feat.squeeze().squeeze()
+        label_idx = l.squeeze()
+
+        # feat shape: (1, 1, 320, 128) -> spectrogram shape: (320, 128)
+        # 320 frames, 128 mel bins, 320-x-axis, 128-y-axis
+        fig, ax = plt.subplots()
+        cax = ax.matshow(feat.T, interpolation="nearest", aspect="auto")
+        plt.ylim(0, 128)
+
+        plt.title(f"Label: {dataset.target[np.argmax(label_idx)]}")
+        plt.show()
 
         if i >= 1:
             break
